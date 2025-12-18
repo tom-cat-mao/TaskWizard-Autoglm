@@ -9,6 +9,7 @@ import com.example.autoglm.config.AppMap
 /**
  * ActionExecutor - 执行 Agent 的各种操作
  * Phase 2: 完整支持所有动作类型
+ * Phase 3: IME 自动化管理
  * 
  * 坐标转换修复：使用截图实际尺寸而非物理屏幕尺寸
  */
@@ -21,6 +22,15 @@ class ActionExecutor(
     private val onInteract: ((String) -> String?)? = null,   // Interact 回调
     private val onNote: ((String) -> Unit)? = null           // Note 回调
 ) {
+    
+    companion object {
+        private const val TAG = "ActionExecutor"
+        private const val ADB_KEYBOARD_IME = "com.android.adbkeyboard/.AdbIME"
+    }
+    
+    // Phase 3: IME Management - 记录原始输入法
+    private var originalIME: String? = null
+    private var imeHasBeenSwitched = false
 
     /**
      * 更新屏幕尺寸（基于截图实际尺寸）
@@ -109,11 +119,39 @@ class ActionExecutor(
             
             "type", "type_name" -> {
                 val text = action.content ?: return
+                
+                // Phase 3: 自动切换到 ADB Keyboard
+                if (!imeHasBeenSwitched) {
+                    try {
+                        // 记录当前输入法
+                        originalIME = service.getCurrentIME()
+                        Log.i(TAG, "Original IME: $originalIME")
+                        
+                        // 切换到 ADB Keyboard
+                        if (originalIME != ADB_KEYBOARD_IME) {
+                            val success = service.setIME(ADB_KEYBOARD_IME)
+                            if (success) {
+                                imeHasBeenSwitched = true
+                                Log.i(TAG, "Successfully switched to ADB Keyboard")
+                            } else {
+                                Log.w(TAG, "Failed to switch to ADB Keyboard, will try to input anyway")
+                            }
+                        } else {
+                            Log.d(TAG, "Already using ADB Keyboard")
+                            imeHasBeenSwitched = true
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to switch IME", e)
+                    }
+                }
+                
+                // 执行输入
                 val base64 = android.util.Base64.encodeToString(text.toByteArray(), android.util.Base64.NO_WRAP)
                 try {
                     service.injectInputBase64(base64)
+                    Log.d(TAG, "Text input executed: ${text.take(20)}...")
                 } catch (e: Exception) {
-                    Log.e("Executor", "Input failed", e)
+                    Log.e(TAG, "Input failed", e)
                 }
             }
             
@@ -201,4 +239,39 @@ class ActionExecutor(
             Log.e("Executor", "Shell failed", e)
         }
     }
+    
+    // ==================== Phase 3: IME Management ====================
+    
+    /**
+     * 还原原始输入法
+     * 应在任务完成或发生错误时调用
+     */
+    fun restoreIME() {
+        if (!imeHasBeenSwitched || originalIME == null) {
+            Log.d(TAG, "No need to restore IME (not switched or no original IME)")
+            return
+        }
+        
+        try {
+            Log.i(TAG, "Restoring IME to: $originalIME")
+            val success = service.setIME(originalIME!!)
+            
+            if (success) {
+                Log.i(TAG, "Successfully restored IME")
+            } else {
+                Log.w(TAG, "Failed to restore IME")
+            }
+            
+            // 重置状态
+            imeHasBeenSwitched = false
+            originalIME = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception while restoring IME", e)
+        }
+    }
+    
+    /**
+     * 检查是否已切换 IME
+     */
+    fun hasIMEBeenSwitched(): Boolean = imeHasBeenSwitched
 }

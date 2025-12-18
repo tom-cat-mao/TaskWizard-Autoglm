@@ -118,4 +118,63 @@ class AutoGLMUserService(context: Context) : IAutoGLMService.Stub() {
             ""
         }
     }
+
+    // ==================== Phase 3: IME Management ====================
+    
+    override fun getCurrentIME(): String {
+        return try {
+            // 使用 settings get 获取当前默认输入法
+            val output = executeShellCommand("settings get secure default_input_method")
+            val imeId = output.trim()
+            
+            Log.d(TAG, "getCurrentIME: $imeId")
+            imeId
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get current IME", e)
+            ""
+        }
+    }
+    
+    override fun setIME(imeId: String): Boolean {
+        return try {
+            Log.d(TAG, "setIME: attempting to set IME to $imeId")
+            
+            // 1. 先启用输入法（如果未启用）
+            val enableResult = executeShellCommand("ime enable $imeId")
+            Log.d(TAG, "ime enable result: $enableResult")
+            
+            // 2. 设置为默认输入法
+            val setResult = executeShellCommand("ime set $imeId")
+            Log.d(TAG, "ime set result: $setResult")
+            
+            // 3. 验证是否设置成功
+            val currentIME = getCurrentIME()
+            val success = currentIME == imeId
+            
+            if (success) {
+                Log.i(TAG, "Successfully set IME to $imeId")
+            } else {
+                Log.w(TAG, "Failed to set IME. Current: $currentIME, Expected: $imeId")
+            }
+            
+            success
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set IME", e)
+            false
+        }
+    }
+    
+    override fun isADBKeyboardInstalled(): Boolean {
+        return try {
+            // 检查 ADB Keyboard 包是否已安装
+            val output = executeShellCommand("pm list packages com.android.adbkeyboard")
+            val installed = output.contains("com.android.adbkeyboard")
+            
+            Log.d(TAG, "isADBKeyboardInstalled: $installed")
+            installed
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to check ADB Keyboard installation", e)
+            false
+        }
+    }
 }

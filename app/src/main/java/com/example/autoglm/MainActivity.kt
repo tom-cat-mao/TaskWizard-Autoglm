@@ -95,6 +95,9 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
         }
 
         checkAndRequestPermission()
+        
+        // Phase 3: 检查 ADB Keyboard 是否已安装
+        checkADBKeyboard()
     }
 
     private fun setupClearButton(btnId: Int, targetEditText: EditText) {
@@ -136,6 +139,78 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
             statusText.text = "Status: Ready"
         } else {
             statusText.text = "Status: Permission Denied"
+        }
+    }
+    
+    // ==================== Phase 3: IME Management ====================
+    
+    /**
+     * Phase 3: 检查 ADB Keyboard 是否已安装
+     */
+    private fun checkADBKeyboard() {
+        lifecycleScope.launch {
+            try {
+                // 等待 Shizuku 权限就绪
+                delay(500)
+                
+                if (!ShizukuManager.checkPermission()) {
+                    Log.d("MainActivity", "Shizuku permission not granted yet, skipping ADB Keyboard check")
+                    return@launch
+                }
+                
+                val service = ShizukuManager.bindService(this@MainActivity)
+                val isInstalled = service.isADBKeyboardInstalled()
+                
+                if (!isInstalled) {
+                    withContext(Dispatchers.Main) {
+                        showADBKeyboardGuide()
+                    }
+                } else {
+                    Log.i("MainActivity", "ADB Keyboard is installed")
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Failed to check ADB Keyboard", e)
+            }
+        }
+    }
+    
+    /**
+     * Phase 3: 显示 ADB Keyboard 安装引导
+     */
+    private fun showADBKeyboardGuide() {
+        AlertDialog.Builder(this)
+            .setTitle("需要安装 ADB Keyboard")
+            .setMessage("""
+                为了实现文本输入功能，需要安装 ADB Keyboard 应用。
+                
+                安装步骤：
+                1. 下载 ADB Keyboard APK
+                2. 安装到手机
+                3. 在系统设置中启用 ADB Keyboard
+                
+                下载地址：
+                https://github.com/senzhk/ADBKeyBoard/blob/master/ADBKeyboard.apk
+            """.trimIndent())
+            .setPositiveButton("我知道了") { dialog, _ ->
+                dialog.dismiss()
+            }
+            .setNegativeButton("不再提示") { dialog, _ ->
+                // 可以添加一个标记，不再显示此对话框
+                dialog.dismiss()
+            }
+            .show()
+    }
+    
+    /**
+     * Phase 3: 还原输入法
+     * 在任务完成、错误、停止时调用
+     */
+    private fun restoreIMEIfNeeded() {
+        try {
+            actionExecutor?.restoreIME()
+            Log.d("MainActivity", "IME restoration attempted")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to restore IME", e)
         }
     }
     
@@ -204,6 +279,9 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
         btnAutoLoop.text = "Auto Loop"
         statusText.text = "Status: Stopped by User"
         btnStep.isEnabled = true
+        
+        // Phase 3: 还原输入法
+        restoreIMEIfNeeded()
     }
     
     private fun startLoop() {

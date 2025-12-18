@@ -31,4 +31,23 @@ interface IAutoGLMService {
      * @return 包名，例如 "com.tencent.mm"，失败返回空字符串
      */
     String getCurrentPackage();
+    
+    /**
+     * Phase 3: 获取当前启用的输入法
+     * @return 输入法 ID，例如 "com.android.adbkeyboard/.AdbIME"，失败返回空字符串
+     */
+    String getCurrentIME();
+    
+    /**
+     * Phase 3: 设置输入法
+     * @param imeId 输入法 ID，例如 "com.android.adbkeyboard/.AdbIME"
+     * @return 是否成功
+     */
+    boolean setIME(String imeId);
+    
+    /**
+     * Phase 3: 检查 ADB Keyboard 是否已安装
+     * @return 是否已安装
+     */
+    boolean isADBKeyboardInstalled();
 }
