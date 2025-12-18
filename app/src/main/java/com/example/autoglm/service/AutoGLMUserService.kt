@@ -82,4 +82,40 @@ class AutoGLMUserService(context: Context) : IAutoGLMService.Stub() {
         val cmd = "am broadcast -a ADB_INPUT_B64 --es msg $base64Text"
         executeShellCommand(cmd)
     }
+
+    override fun getCurrentPackage(): String {
+        return try {
+            // 使用 dumpsys window 获取当前焦点窗口
+            // 对齐 Python 原版：不使用正则，直接搜索包名
+            val output = executeShellCommand("dumpsys window")
+            
+            if (output.isEmpty()) {
+                Log.w(TAG, "dumpsys window returned empty output")
+                return ""
+            }
+            
+            Log.d(TAG, "getCurrentPackage: searching in dumpsys output (${output.length} chars)")
+            
+            // 遍历每一行，查找包含 mCurrentFocus 或 mFocusedApp 的行
+            for (line in output.split("\n")) {
+                if ("mCurrentFocus" in line || "mFocusedApp" in line) {
+                    Log.d(TAG, "Found focus line: $line")
+                    
+                    // 在这一行中搜索所有已知的包名
+                    for ((appName, packageName) in com.example.autoglm.config.AppMap.PACKAGES) {
+                        if (packageName in line) {
+                            Log.d(TAG, "Matched package: $packageName -> app: $appName")
+                            return packageName
+                        }
+                    }
+                }
+            }
+            
+            Log.d(TAG, "No matching package found, returning empty")
+            return ""
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get current package", e)
+            ""
+        }
+    }
 }

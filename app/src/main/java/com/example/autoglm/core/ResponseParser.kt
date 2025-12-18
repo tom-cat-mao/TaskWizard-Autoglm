@@ -1,9 +1,12 @@
 package com.example.autoglm.core
 
+import android.util.Log
 import java.util.regex.Pattern
 import com.example.autoglm.data.Action
 
 object ResponseParser {
+
+    private const val TAG = "ResponseParser"
 
     data class ParseResult(
         val think: String?,
@@ -15,12 +18,52 @@ object ResponseParser {
         val think = extractTag(content, "think")
         
         // 2. Extract Answer
-        val answer = extractTag(content, "answer") ?: content // Fallback to raw content if no tag
+        var answer = extractTag(content, "answer")
         
-        // 3. Parse Action String (e.g., do(action="Tap", element=[123,456]))
-        val action = parseActionString(answer)
+        // 3. If no <answer> tag, try to find do(...) or finish(...) in the raw content
+        if (answer == null) {
+            Log.d(TAG, "No <answer> tag found, searching for action in raw content")
+            answer = extractActionFromRawContent(content)
+        }
+        
+        // 4. Parse Action String (e.g., do(action="Tap", element=[123,456]))
+        val action = if (answer != null) {
+            parseActionString(answer)
+        } else {
+            Log.w(TAG, "No action found in content")
+            null
+        }
         
         return ParseResult(think, action)
+    }
+
+    /**
+     * 从原始内容中提取 do(...) 或 finish(...) 指令
+     * 用于处理模型没有使用 <answer> 标签的情况
+     */
+    private fun extractActionFromRawContent(content: String): String? {
+        // 尝试匹配 do(...) 或 finish(...)
+        // 使用更宽松的正则，匹配整个函数调用
+        val doPattern = Pattern.compile("do\\s*\\([^)]+\\)", Pattern.DOTALL)
+        val finishPattern = Pattern.compile("finish\\s*\\([^)]+\\)", Pattern.DOTALL)
+        
+        // 先尝试匹配 do(...)
+        var matcher = doPattern.matcher(content)
+        if (matcher.find()) {
+            val action = matcher.group(0)
+            Log.d(TAG, "Found do(...) action: $action")
+            return action
+        }
+        
+        // 再尝试匹配 finish(...)
+        matcher = finishPattern.matcher(content)
+        if (matcher.find()) {
+            val action = matcher.group(0)
+            Log.d(TAG, "Found finish(...) action: $action")
+            return action
+        }
+        
+        return null
     }
 
     private fun extractTag(content: String, tag: String): String? {
@@ -34,25 +77,39 @@ object ResponseParser {
     }
 
     private fun parseActionString(actionStr: String): Action? {
+        val trimmed = actionStr.trim()
+        
         // Handle finish(message="...")
-        if (actionStr.startsWith("finish")) {
-            val msg = extractParam(actionStr, "message")
+        if (trimmed.startsWith("finish")) {
+            val msg = extractParam(trimmed, "message")
+            Log.d(TAG, "Parsed finish action with message: $msg")
             return Action("finish", null, msg)
         }
 
         // Handle do(...)
-        if (actionStr.startsWith("do")) {
-            val actionType = extractParam(actionStr, "action")
+        if (trimmed.startsWith("do")) {
+            val actionType = extractParam(trimmed, "action")
+            
+            if (actionType == null) {
+                Log.w(TAG, "Failed to extract action type from: $trimmed")
+                return null
+            }
             
             // Extract coordinates: element=[x,y] or start=[x,y], end=[x,y]
-            val element = extractCoordinates(actionStr, "element")
+            val element = extractCoordinates(trimmed, "element")
             
             // For Swipe
-            val start = extractCoordinates(actionStr, "start")
-            val end = extractCoordinates(actionStr, "end")
+            val start = extractCoordinates(trimmed, "start")
+            val end = extractCoordinates(trimmed, "end")
             
-            // Extract text/message
-            val text = extractParam(actionStr, "text") ?: extractParam(actionStr, "message") ?: extractParam(actionStr, "app")
+            // Extract text/message/app
+            val text = extractParam(trimmed, "text") 
+                ?: extractParam(trimmed, "message") 
+                ?: extractParam(trimmed, "app")
+            
+            // Phase 2: Extract duration and instruction
+            val duration = extractParam(trimmed, "duration")?.toIntOrNull()
+            val instruction = extractParam(trimmed, "instruction")
 
             // Combine for Action object
             // If it's swipe, location needs 4 coords
@@ -62,9 +119,18 @@ object ResponseParser {
                 element
             }
 
-            return Action(actionType, location, text)
+            Log.d(TAG, "Parsed action: type=$actionType, location=$location, text=$text, duration=$duration")
+            
+            return Action(
+                action = actionType,
+                location = location,
+                content = text,
+                duration = duration,
+                instruction = instruction
+            )
         }
 
+        Log.w(TAG, "Unknown action format: $trimmed")
         return null
     }
 
@@ -86,7 +152,9 @@ object ResponseParser {
                 val x = matcher.group(1)?.toInt()
                 val y = matcher.group(2)?.toInt()
                 if (x != null && y != null) return listOf(x, y)
-            } catch (e: Exception) { }
+            } catch (e: Exception) { 
+                Log.e(TAG, "Failed to parse coordinates", e)
+            }
         }
         return null
     }

@@ -35,4 +35,30 @@ object AppMap {
         "时钟" to "com.android.deskclock"
         // Add more from original list if needed
     )
+    
+    /**
+     * 根据应用名获取包名
+     * @param appName 应用名（支持大小写不敏感匹配）
+     * @return 包名，未找到返回 null
+     */
+    fun getPackageName(appName: String): String? {
+        // 精确匹配
+        PACKAGES[appName]?.let { return it }
+        
+        // 大小写不敏感匹配
+        PACKAGES.entries.find { it.key.equals(appName, ignoreCase = true) }?.let { 
+            return it.value 
+        }
+        
+        return null
+    }
+    
+    /**
+     * 根据包名反向查询应用名
+     * @param packageName 包名
+     * @return 应用名，未找到返回 null
+     */
+    fun getAppName(packageName: String): String? {
+        return PACKAGES.entries.find { it.value == packageName }?.key
+    }
 }

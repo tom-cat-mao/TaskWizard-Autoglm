@@ -25,4 +25,10 @@ interface IAutoGLMService {
      * @param base64Text Base64编码的文本
      */
     void injectInputBase64(String base64Text);
+    
+    /**
+     * 获取当前前台应用的包名
+     * @return 包名，例如 "com.tencent.mm"，失败返回空字符串
+     */
+    String getCurrentPackage();
 }

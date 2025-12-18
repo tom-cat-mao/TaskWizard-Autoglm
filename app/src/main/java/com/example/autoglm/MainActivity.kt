@@ -8,6 +8,7 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.example.autoglm.api.ApiClient
@@ -19,8 +20,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
 import rikka.shizuku.Shizuku
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.resume
 
 class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListener {
 
@@ -36,7 +39,7 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
     private lateinit var btnAutoLoop: Button
     
     // Components
-    private val agentCore = AgentCore()
+    private lateinit var agentCore: AgentCore
     private var actionExecutor: ActionExecutor? = null
     
     // Auto Loop Control
@@ -50,6 +53,9 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
 
         // Init Utils
         SettingsManager.init(this)
+        
+        // Init AgentCore with Context
+        agentCore = AgentCore(this)
 
         // Bind Views
         statusText = findViewById(R.id.tv_status)
@@ -122,7 +128,7 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
     }
     
     private fun initExecutor() {
-        // Executor will be initialized when needed or we can do it here if service is somehow available
+        // Executor will be initialized when needed
     }
 
     override fun onRequestPermissionResult(requestCode: Int, grantResult: Int) {
@@ -131,6 +137,57 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
         } else {
             statusText.text = "Status: Permission Denied"
         }
+    }
+    
+    /**
+     * Phase 2: Take_over 回调 - 显示对话框暂停等待用户操作
+     */
+    private suspend fun handleTakeOver(message: String) = suspendCancellableCoroutine<Unit> { continuation ->
+        runOnUiThread {
+            AlertDialog.Builder(this)
+                .setTitle("需要人工介入")
+                .setMessage(message)
+                .setCancelable(false)
+                .setPositiveButton("继续") { dialog, _ ->
+                    dialog.dismiss()
+                    continuation.resume(Unit)
+                }
+                .show()
+        }
+    }
+    
+    /**
+     * Phase 2: Interact 回调 - 显示选项让用户选择
+     */
+    private suspend fun handleInteract(message: String): String? = suspendCancellableCoroutine { continuation ->
+        runOnUiThread {
+            val input = EditText(this)
+            input.hint = "请输入您的选择"
+            
+            AlertDialog.Builder(this)
+                .setTitle("用户选择")
+                .setMessage(message)
+                .setView(input)
+                .setCancelable(false)
+                .setPositiveButton("确定") { dialog, _ ->
+                    val result = input.text.toString()
+                    dialog.dismiss()
+                    continuation.resume(result)
+                }
+                .setNegativeButton("取消") { dialog, _ ->
+                    dialog.dismiss()
+                    continuation.resume(null)
+                }
+                .show()
+        }
+    }
+    
+    /**
+     * Phase 2: Note 回调 - 记录页面信息
+     */
+    private fun handleNote(note: String) {
+        agentCore.addNote(note)
+        Log.d("MainActivity", "Note recorded: $note")
     }
     
     private fun toggleAutoLoop() {
@@ -169,9 +226,28 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
                 // 1. Bind Service Once
                 val service = ShizukuManager.bindService(this@MainActivity)
                 
+                // Phase 2: 创建 ActionExecutor 并传入回调
                 if (actionExecutor == null) {
                     val metrics = resources.displayMetrics
-                    actionExecutor = ActionExecutor(this@MainActivity, service, metrics.widthPixels, metrics.heightPixels)
+                    actionExecutor = ActionExecutor(
+                        context = this@MainActivity,
+                        service = service,
+                        screenWidth = metrics.widthPixels,
+                        screenHeight = metrics.heightPixels,
+                        onTakeOver = { message ->
+                            // Take_over 需要暂停循环并等待用户操作
+                            lifecycleScope.launch {
+                                handleTakeOver(message)
+                            }
+                        },
+                        onInteract = { message ->
+                            // Interact 需要获取用户输入（同步调用）
+                            null // 暂时返回 null，实际应该使用 runBlocking 或其他方式
+                        },
+                        onNote = { note ->
+                            handleNote(note)
+                        }
+                    )
                 }
 
                 // 2. Start Session
@@ -220,10 +296,17 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
                         return@launch
                     }
                     
-                    // Update Preview
+                    // Update Preview and get actual screenshot dimensions
                     withContext(Dispatchers.Main) {
                          val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                          imageView.setImageBitmap(bitmap)
+                         
+                         // 🔧 坐标修复：从截图获取实际尺寸并更新 ActionExecutor
+                         val actualWidth = bitmap.width
+                         val actualHeight = bitmap.height
+                         actionExecutor?.updateScreenSize(actualWidth, actualHeight)
+                         Log.d("MainActivity", "Screenshot size: ${actualWidth}x${actualHeight}")
+                         
                          statusText.text = "Step $stepCount: Thinking..."
                     }
                     
@@ -316,9 +399,26 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
         lifecycleScope.launch {
             try {
                 val service = ShizukuManager.bindService(this@MainActivity)
+                // Phase 2: 创建 ActionExecutor 并传入回调
                 if (actionExecutor == null) {
                     val metrics = resources.displayMetrics
-                    actionExecutor = ActionExecutor(this@MainActivity, service, metrics.widthPixels, metrics.heightPixels)
+                    actionExecutor = ActionExecutor(
+                        context = this@MainActivity,
+                        service = service,
+                        screenWidth = metrics.widthPixels,
+                        screenHeight = metrics.heightPixels,
+                        onTakeOver = { message ->
+                            lifecycleScope.launch {
+                                handleTakeOver(message)
+                            }
+                        },
+                        onInteract = { message ->
+                            null // 单步模式暂不支持 Interact
+                        },
+                        onNote = { note ->
+                            handleNote(note)
+                        }
+                    )
                 }
 
                 // 使用新的文件系统方案
@@ -348,6 +448,12 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
                 
                 val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 imageView.setImageBitmap(bitmap)
+                
+                // 🔧 坐标修复：从截图获取实际尺寸并更新 ActionExecutor
+                val actualWidth = bitmap.width
+                val actualHeight = bitmap.height
+                actionExecutor?.updateScreenSize(actualWidth, actualHeight)
+                Log.d("MainActivity", "Screenshot size: ${actualWidth}x${actualHeight}")
                 
                 statusText.text = "Status: Thinking (API Call)..."
 
