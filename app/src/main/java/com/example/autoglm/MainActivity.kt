@@ -27,111 +27,40 @@ import kotlin.coroutines.resume
 
 class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListener {
 
+    // ==================== UI Components ====================
     private lateinit var statusText: TextView
     private lateinit var imageView: ImageView
-    
     private lateinit var etApiKey: EditText
     private lateinit var etBaseUrl: EditText
     private lateinit var etModel: EditText
     private lateinit var etTask: EditText
-    
     private lateinit var btnStep: Button
     private lateinit var btnAutoLoop: Button
-    
-    // Components
+
+    // ==================== Core Components ====================
     private lateinit var agentCore: AgentCore
     private var actionExecutor: ActionExecutor? = null
-    
-    // Auto Loop Control
+
+    // ==================== Loop Control ====================
     private val isLooping = AtomicBoolean(false)
-    private val MAX_STEPS = 15
-    private val MAX_RETRIES = 3  // 网络错误最大重试次数
+
+    companion object {
+        private const val MAX_STEPS = 15
+        private const val MAX_RETRIES = 3  // 网络错误最大重试次数
+    }
+
+    // ==================== Lifecycle ====================
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Init Utils
-        SettingsManager.init(this)
-        
-        // Init AgentCore with Context
-        agentCore = AgentCore(this)
-
-        // Bind Views
-        statusText = findViewById(R.id.tv_status)
-        imageView = findViewById(R.id.iv_preview)
-        etApiKey = findViewById(R.id.et_api_key)
-        etBaseUrl = findViewById(R.id.et_base_url)
-        etModel = findViewById(R.id.et_model)
-        etTask = findViewById(R.id.et_task)
-        
-        btnStep = findViewById(R.id.btn_step)
-        btnAutoLoop = findViewById(R.id.btn_auto_loop)
-
-        // Load Settings
-        etApiKey.setText(SettingsManager.apiKey)
-        etBaseUrl.setText(SettingsManager.baseUrl)
-        etModel.setText(SettingsManager.model)
-
-        // Setup Clear Buttons
-        setupClearButton(R.id.btn_clear_api_key, etApiKey)
-        setupClearButton(R.id.btn_clear_base_url, etBaseUrl)
-        setupClearButton(R.id.btn_clear_model, etModel)
-        setupClearButton(R.id.btn_clear_task, etTask)
-
-        // Setup Main Buttons
-        findViewById<Button>(R.id.btn_save_settings).setOnClickListener {
-            saveSettings()
-        }
-
-        btnStep.setOnClickListener {
-            runOneStep()
-        }
-        
-        // Enable Auto Loop Button
-        btnAutoLoop.isEnabled = true
-        btnAutoLoop.setOnClickListener {
-            toggleAutoLoop()
-        }
-
+        initializeComponents()
+        bindViews()
+        loadSettings()
+        setupButtons()
         checkAndRequestPermission()
-        
-        // Phase 3: 检查 ADB Keyboard 是否已安装
         checkADBKeyboard()
-    }
-
-    private fun setupClearButton(btnId: Int, targetEditText: EditText) {
-        findViewById<Button>(btnId).setOnClickListener {
-            targetEditText.setText("")
-        }
-    }
-
-    private fun saveSettings() {
-        val apiKey = etApiKey.text.toString().trim()
-        val baseUrl = etBaseUrl.text.toString().trim()
-        val model = etModel.text.toString().trim()
-        
-        SettingsManager.apiKey = apiKey
-        SettingsManager.baseUrl = baseUrl
-        SettingsManager.model = model
-        
-        // Re-init API Client
-        ApiClient.init(baseUrl, apiKey)
-        Toast.makeText(this, "Settings Saved", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun checkAndRequestPermission() {
-        if (ShizukuManager.checkPermission()) {
-            statusText.text = "Status: Ready (Shizuku Granted)"
-            initExecutor()
-        } else {
-            statusText.text = "Status: Requesting Shizuku..."
-            ShizukuManager.requestPermission(this)
-        }
-    }
-    
-    private fun initExecutor() {
-        // Executor will be initialized when needed
     }
 
     override fun onRequestPermissionResult(requestCode: Int, grantResult: Int) {
@@ -141,26 +70,115 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
             statusText.text = "Status: Permission Denied"
         }
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        Shizuku.removeRequestPermissionResultListener(this)
+
+        // 异步解绑 Shizuku 服务，避免阻塞 Activity 销毁
+        lifecycleScope.launch(Dispatchers.IO) {
+            ShizukuManager.unbind()
+        }
+    }
+
+    // ==================== Initialization ====================
+
+    private fun initializeComponents() {
+        SettingsManager.init(this)
+        agentCore = AgentCore(this)
+    }
+
+    private fun bindViews() {
+        statusText = findViewById(R.id.tv_status)
+        imageView = findViewById(R.id.iv_preview)
+        etApiKey = findViewById(R.id.et_api_key)
+        etBaseUrl = findViewById(R.id.et_base_url)
+        etModel = findViewById(R.id.et_model)
+        etTask = findViewById(R.id.et_task)
+        btnStep = findViewById(R.id.btn_step)
+        btnAutoLoop = findViewById(R.id.btn_auto_loop)
+    }
+
+    private fun loadSettings() {
+        etApiKey.setText(SettingsManager.apiKey)
+        etBaseUrl.setText(SettingsManager.baseUrl)
+        etModel.setText(SettingsManager.model)
+    }
+
+    private fun setupButtons() {
+        // Clear buttons
+        setupClearButton(R.id.btn_clear_api_key, etApiKey)
+        setupClearButton(R.id.btn_clear_base_url, etBaseUrl)
+        setupClearButton(R.id.btn_clear_model, etModel)
+        setupClearButton(R.id.btn_clear_task, etTask)
+
+        // Save settings button
+        findViewById<Button>(R.id.btn_save_settings).setOnClickListener {
+            saveSettings()
+        }
+
+        // Step button
+        btnStep.setOnClickListener {
+            runOneStep()
+        }
+
+        // Auto loop button
+        btnAutoLoop.isEnabled = true
+        btnAutoLoop.setOnClickListener {
+            toggleAutoLoop()
+        }
+    }
+
+    private fun setupClearButton(btnId: Int, targetEditText: EditText) {
+        findViewById<Button>(btnId).setOnClickListener {
+            targetEditText.setText("")
+        }
+    }
+
+    // ==================== Settings Management ====================
+
+    private fun saveSettings() {
+        val apiKey = etApiKey.text.toString().trim()
+        val baseUrl = etBaseUrl.text.toString().trim()
+        val model = etModel.text.toString().trim()
+
+        SettingsManager.apiKey = apiKey
+        SettingsManager.baseUrl = baseUrl
+        SettingsManager.model = model
+
+        ApiClient.init(baseUrl, apiKey)
+        Toast.makeText(this, "Settings Saved", Toast.LENGTH_SHORT).show()
+    }
+
+    // ==================== Permission Management ====================
+
+    private fun checkAndRequestPermission() {
+        if (ShizukuManager.checkPermission()) {
+            statusText.text = "Status: Ready (Shizuku Granted)"
+        } else {
+            statusText.text = "Status: Requesting Shizuku..."
+            ShizukuManager.requestPermission(this)
+        }
+    }
     
-    // ==================== Phase 3: IME Management ====================
-    
+    // ==================== IME Management ====================
+
     /**
-     * Phase 3: 检查 ADB Keyboard 是否已安装
+     * 检查 ADB Keyboard 是否已安装
      */
     private fun checkADBKeyboard() {
         lifecycleScope.launch {
             try {
-                // 等待 Shizuku 权限就绪
-                delay(500)
-                
+                delay(500) // 等待 Shizuku 权限就绪
+
                 if (!ShizukuManager.checkPermission()) {
                     Log.d("MainActivity", "Shizuku permission not granted yet, skipping ADB Keyboard check")
                     return@launch
                 }
-                
+
                 val service = ShizukuManager.bindService(this@MainActivity)
                 val isInstalled = service.isADBKeyboardInstalled()
-                
+
                 if (!isInstalled) {
                     withContext(Dispatchers.Main) {
                         showADBKeyboardGuide()
@@ -173,21 +191,21 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
             }
         }
     }
-    
+
     /**
-     * Phase 3: 显示 ADB Keyboard 安装引导
+     * 显示 ADB Keyboard 安装引导对话框
      */
     private fun showADBKeyboardGuide() {
         AlertDialog.Builder(this)
             .setTitle("需要安装 ADB Keyboard")
             .setMessage("""
                 为了实现文本输入功能，需要安装 ADB Keyboard 应用。
-                
+
                 安装步骤：
                 1. 下载 ADB Keyboard APK
                 2. 安装到手机
                 3. 在系统设置中启用 ADB Keyboard
-                
+
                 下载地址：
                 https://github.com/senzhk/ADBKeyBoard/blob/master/ADBKeyboard.apk
             """.trimIndent())
@@ -195,27 +213,30 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
                 dialog.dismiss()
             }
             .setNegativeButton("不再提示") { dialog, _ ->
-                // 可以添加一个标记，不再显示此对话框
                 dialog.dismiss()
             }
             .show()
     }
-    
+
     /**
-     * Phase 3: 还原输入法
+     * 还原输入法（异步执行，避免阻塞主线程）
      * 在任务完成、错误、停止时调用
      */
-    private fun restoreIMEIfNeeded() {
-        try {
-            actionExecutor?.restoreIME()
-            Log.d("MainActivity", "IME restoration attempted")
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Failed to restore IME", e)
+    private suspend fun restoreIMEIfNeeded() {
+        withContext(Dispatchers.IO) {
+            try {
+                actionExecutor?.restoreIME()
+                Log.d("MainActivity", "IME restoration attempted")
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Failed to restore IME", e)
+            }
         }
     }
     
+    // ==================== Action Callbacks ====================
+
     /**
-     * Phase 2: Take_over 回调 - 显示对话框暂停等待用户操作
+     * Take_over 回调 - 显示对话框暂停等待用户操作
      */
     private suspend fun handleTakeOver(message: String) = suspendCancellableCoroutine<Unit> { continuation ->
         runOnUiThread {
@@ -230,15 +251,15 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
                 .show()
         }
     }
-    
+
     /**
-     * Phase 2: Interact 回调 - 显示选项让用户选择
+     * Interact 回调 - 显示选项让用户选择
      */
     private suspend fun handleInteract(message: String): String? = suspendCancellableCoroutine { continuation ->
         runOnUiThread {
             val input = EditText(this)
             input.hint = "请输入您的选择"
-            
+
             AlertDialog.Builder(this)
                 .setTitle("用户选择")
                 .setMessage(message)
@@ -256,21 +277,18 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
                 .show()
         }
     }
-    
+
     /**
-     * Phase 2: Note 回调 - 记录页面信息
+     * Note 回调 - 记录页面信息
      */
     private fun handleNote(note: String) {
         agentCore.addNote(note)
         Log.d("MainActivity", "Note recorded: $note")
     }
-    
-    // ==================== Phase 4: Safety & Timing ====================
-    
+
     /**
-     * Phase 4: 敏感操作确认回调
-     * 严格对齐原版 handler.py 的 confirmation_callback
-     * 
+     * 敏感操作确认回调
+     *
      * @param message 敏感操作描述信息
      * @return Boolean - true 表示用户确认，false 表示用户取消
      */
@@ -294,6 +312,8 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
         }
     }
     
+    // ==================== Loop Control ====================
+
     private fun toggleAutoLoop() {
         if (isLooping.get()) {
             stopLoop()
@@ -301,16 +321,18 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
             startLoop()
         }
     }
-    
+
     private fun stopLoop() {
         isLooping.set(false)
         agentCore.stop()
         btnAutoLoop.text = "Auto Loop"
         statusText.text = "Status: Stopped by User"
         btnStep.isEnabled = true
-        
-        // Phase 3: 还原输入法
-        restoreIMEIfNeeded()
+
+        // 异步还原输入法，避免阻塞主线程
+        lifecycleScope.launch(Dispatchers.IO) {
+            restoreIMEIfNeeded()
+        }
     }
     
     private fun startLoop() {
@@ -343,10 +365,8 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
                         screenWidth = metrics.widthPixels,
                         screenHeight = metrics.heightPixels,
                         onTakeOver = { message ->
-                            // Take_over 需要暂停循环并等待用户操作
-                            lifecycleScope.launch {
-                                handleTakeOver(message)
-                            }
+                            // Take_over 会暂停并等待用户操作完成（suspend 函数）
+                            handleTakeOver(message)
                         },
                         onInteract = { message ->
                             // Interact 需要获取用户输入（同步调用）
@@ -532,9 +552,8 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
                         screenWidth = metrics.widthPixels,
                         screenHeight = metrics.heightPixels,
                         onTakeOver = { message ->
-                            lifecycleScope.launch {
-                                handleTakeOver(message)
-                            }
+                            // Take_over 会暂停并等待用户操作完成（suspend 函数）
+                            handleTakeOver(message)
                         },
                         onInteract = { message ->
                             null // 单步模式暂不支持 Interact
@@ -605,11 +624,5 @@ class MainActivity : AppCompatActivity(), Shizuku.OnRequestPermissionResultListe
                 statusText.text = "Error: ${e.message}"
             }
         }
-    }
-    
-    override fun onDestroy() {
-        super.onDestroy()
-        Shizuku.removeRequestPermissionResultListener(this)
-        ShizukuManager.unbind()
     }
 }

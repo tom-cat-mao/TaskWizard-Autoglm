@@ -22,10 +22,10 @@ class ActionExecutor(
     private val service: IAutoGLMService,
     private var screenWidth: Int,   // 改为 var，支持动态更新
     private var screenHeight: Int,  // 改为 var，支持动态更新
-    private val onTakeOver: ((String) -> Unit)? = null,           // Take_over 回调
-    private val onInteract: ((String) -> String?)? = null,        // Interact 回调
-    private val onNote: ((String) -> Unit)? = null,               // Note 回调
-    private val onConfirmation: (suspend (String) -> Boolean)? = null  // Phase 4: 敏感操作确认回调
+    private val onTakeOver: (suspend (String) -> Unit)? = null,          // Take_over 回调（改为 suspend）
+    private val onInteract: ((String) -> String?)? = null,               // Interact 回调
+    private val onNote: ((String) -> Unit)? = null,                      // Note 回调
+    private val onConfirmation: (suspend (String) -> Boolean)? = null    // Phase 4: 敏感操作确认回调
 ) {
     
     companion object {
@@ -229,11 +229,11 @@ class ActionExecutor(
                 runShell("input keyevent KEYCODE_ENTER")
             }
             
-            // Phase 2: Take_over 实现
+            // Phase 2: Take_over 实现（suspend 调用，会等待用户操作完成）
             "take_over" -> {
                 val message = action.message ?: action.content ?: "需要人工介入"
                 Log.i(TAG, "Take_over requested: $message")
-                onTakeOver?.invoke(message)
+                onTakeOver?.invoke(message)  // 现在会正确等待用户操作
             }
             
             // Phase 2: Interact 实现

@@ -93,18 +93,27 @@ object ShizukuManager {
         })
     }
     
-    fun unbind() {
+    /**
+     * 解绑 UserService（异步执行，避免阻塞调用线程）
+     * 应在 IO 线程或后台协程中调用
+     */
+    suspend fun unbind() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         // Shizuku UserService 的解绑比较特殊，通常依赖于 removeConnection 或 destroy
         try {
             service?.destroy()
+            Log.d(TAG, "Service destroyed")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to destroy service", e)
         }
         service = null
+
         try {
-            Shizuku.unbindUserService(Shizuku.UserServiceArgs(
-                ComponentName("com.example.autoglm", AutoGLMUserService::class.java.name)
-            ), null, true)
+            Shizuku.unbindUserService(
+                Shizuku.UserServiceArgs(
+                    ComponentName("com.example.autoglm", AutoGLMUserService::class.java.name)
+                ), null, true
+            )
+            Log.d(TAG, "Service unbound")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to unbind service", e)
         }
