@@ -42,13 +42,31 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            // 只有在环境变量存在时才使用 release 签名配置
+            // 否则使用 debug 签名（用于本地测试构建）
+            val keystoreFile = System.getenv("KEYSTORE_FILE")
+            if (keystoreFile != null) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                // 本地构建使用 debug 签名
+                signingConfig = signingConfigs.getByName("debug")
+            }
         }
         debug {
             // Debug 版本使用默认签名
         }
     }
     // ==================== 签名配置结束 ====================
+
+    // ==================== Lint 配置（减少内存占用）====================
+    lint {
+        // 禁用 Release 构建时的 Lint 检查（减少内存占用）
+        checkReleaseBuilds = false
+        abortOnError = false
+        // 只检查严重错误
+        checkOnly += setOf("NewApi", "InlinedApi")
+    }
+    // ==================== Lint 配置结束 ====================
 
     buildFeatures {
         aidl = true

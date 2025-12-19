@@ -38,8 +38,18 @@ echo "Found platforms: $(ls $ANDROID_HOME/platforms/)"
 
 # 清理并构建
 echo ""
-echo "========================================" 
+echo "========================================"
 echo "Starting Build Process"
 echo "========================================"
 chmod +x gradlew
-./gradlew clean assembleDebug --stacktrace
+
+# 检查是否传入参数，默认构建 Debug
+BUILD_TYPE=${1:-debug}
+
+if [ "$BUILD_TYPE" = "release" ]; then
+    echo "Building Release APK..."
+    ./gradlew clean assembleRelease --stacktrace
+else
+    echo "Building Debug APK..."
+    ./gradlew clean assembleDebug --stacktrace
+fi
