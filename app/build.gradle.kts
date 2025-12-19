@@ -13,11 +13,45 @@ android {
         minSdk = 26 // Android 8.0+
         targetSdk = 34
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.0.0"
     }
-    
+
+    // ==================== 签名配置 ====================
+    signingConfigs {
+        create("release") {
+            // 从环境变量读取签名信息（GitHub Actions 会设置）
+            val keystoreFile = System.getenv("KEYSTORE_FILE")
+            val keystorePassword = System.getenv("KEYSTORE_PASSWORD")
+            val keyAlias = System.getenv("KEY_ALIAS")
+            val keyPassword = System.getenv("KEY_PASSWORD")
+
+            if (keystoreFile != null && keystorePassword != null &&
+                keyAlias != null && keyPassword != null) {
+                storeFile = file(keystoreFile)
+                storePassword = keystorePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            signingConfig = signingConfigs.getByName("release")
+        }
+        debug {
+            // Debug 版本使用默认签名
+        }
+    }
+    // ==================== 签名配置结束 ====================
+
     buildFeatures {
-        aidl = true 
+        aidl = true
         viewBinding = true
         buildConfig = true
     }

@@ -45,9 +45,11 @@ captures/
 .idea/libraries
 .idea/caches
 
-# Keystore files
+# Keystore files (签名密钥文件，绝对不要提交到 Git)
 *.jks
 *.keystore
+*.keystore.base64
+release.keystore*
 
 # External native build folder
 .cxx/
