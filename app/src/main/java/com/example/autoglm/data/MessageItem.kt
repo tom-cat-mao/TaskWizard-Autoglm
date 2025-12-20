@@ -1,0 +1,48 @@
+package com.example.autoglm.data
+
+import com.example.autoglm.data.Action
+
+/**
+ * 消息项基类
+ * 用于在UI中展示不同类型的消息
+ */
+sealed class MessageItem {
+
+    /**
+     * AI思考消息
+ * 显示AI的推理过程（来自<think>标签）
+     */
+    data class ThinkMessage(
+        val content: String,
+        val timestamp: Long = System.currentTimeMillis()
+    ) : MessageItem()
+
+    /**
+     * 操作消息
+     * 显示AI执行的具体操作
+     */
+    data class ActionMessage(
+        val action: Action,
+        val timestamp: Long = System.currentTimeMillis()
+    ) : MessageItem()
+
+    /**
+     * 系统消息
+     * 显示系统状态、错误、成功等信息
+     */
+    data class SystemMessage(
+        val content: String,
+        val type: SystemMessageType,
+        val timestamp: Long = System.currentTimeMillis()
+    ) : MessageItem()
+}
+
+/**
+ * 系统消息类型
+ */
+enum class SystemMessageType {
+    INFO,       // 信息提示（蓝色）
+    SUCCESS,    // 成功提示（绿色）
+    WARNING,    // 警告提示（橙色）
+    ERROR       // 错误提示（红色）
+}

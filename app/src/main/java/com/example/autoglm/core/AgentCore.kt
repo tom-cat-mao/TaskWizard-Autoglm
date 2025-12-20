@@ -14,14 +14,17 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class AgentCore(private val context: Context) {
+class AgentCore(
+    private val context: Context,
+    private val onError: ((String) -> Unit)? = null  // 错误回调
+) {
     private val history = mutableListOf<Message>()
     private var isRunning = false
     private var isFirstStep = true
-    
+
     // Phase 2: Note 管理
     private val notes = mutableListOf<String>()
-    
+
     // We only expose the last thought for UI
     var lastThink: String? = null
 
@@ -166,15 +169,22 @@ class AgentCore(private val context: Context) {
     }
 
     suspend fun step(screenshotBytes: ByteArray): Action? {
-        if (!isRunning) return null
+        Log.d("AgentCore", "step() called, isRunning=$isRunning, screenshotSize=${screenshotBytes.size} bytes")
+
+        if (!isRunning) {
+            Log.w("AgentCore", "step() called but session is not running")
+            return null
+        }
 
         // 1. Prepare Image
         val base64Image = Base64.encodeToString(screenshotBytes, Base64.NO_WRAP)
         val imageUrl = "data:image/jpeg;base64,$base64Image"
+        Log.d("AgentCore", "Screenshot encoded, base64 length: ${base64Image.length}")
 
         // 2. Build Screen Info (对齐 Python 版本)
         val screenInfo = buildScreenInfo()
-        
+        Log.d("AgentCore", "Screen info built: $screenInfo")
+
         // 3. Prepare User Message with Screen Info
         val textContent = if (isFirstStep) {
             // 首次消息：在任务描述后添加 Screen Info
@@ -191,18 +201,21 @@ class AgentCore(private val context: Context) {
             ContentPart(type = "text", text = textContent),
             ContentPart(type = "image_url", image_url = ImageUrl(imageUrl))
         )
-        
+
         // Optimization: Only keep the LAST image in history to save tokens
         // We remove previous user messages that contained images (lists)
         history.removeAll { it.role == "user" && it.content is List<*> }
-        
+
         val currentMessage = Message("user", contentParts)
         // Note: We don't add currentMessage to history YET, we send it in request
         // But for history consistency in multi-turn, we usually store a summary.
         // Let's follow the Python logic: send full history.
         val requestMessages = history + currentMessage
 
+        Log.d("AgentCore", "Prepared request with ${requestMessages.size} messages")
+
         // 5. Call API
+        Log.d("AgentCore", "Calling API with model=${SettingsManager.model}")
         try {
             val response = ApiClient.getService().chatCompletion(
                 OpenAIRequest(
@@ -210,55 +223,80 @@ class AgentCore(private val context: Context) {
                     messages = requestMessages,
                     max_tokens = 1024,
                     temperature = 0.5,
-                    top_p = 0.9 
+                    top_p = 0.9
                 )
             )
+
+            Log.d("AgentCore", "API response received, code=${response.code()}, successful=${response.isSuccessful}")
 
             if (response.isSuccessful && response.body() != null) {
                 val responseMsg = response.body()!!.choices.first().message
                 val content = responseMsg.content
-                
+
+                Log.d("AgentCore", "AI Response received, length=${content.length}")
+
                 // Phase 5: 严格对齐原版 Python 的上下文管理
                 // 1. 先添加当前的 user message（带图片）到历史
                 history.add(currentMessage)
-                
+
                 // 2. 立即剥离图片，只保留文本（对齐原版 agent.py line 155）
                 // self._context[-1] = MessageBuilder.remove_images_from_message(self._context[-1])
                 val lastIndex = history.size - 1
                 history[lastIndex] = removeImagesFromMessage(history[lastIndex])
-                
+
                 // 3. 添加 assistant 响应
                 history.add(Message("assistant", content))
 
                 Log.d("AgentCore", "AI Response: $content")
-                
+
                 // 6. Parse using the new Regex Parser
                 val result = ResponseParser.parse(content)
                 lastThink = result.think
-                
+
+                Log.d("AgentCore", "Parsed result - think: ${result.think?.take(50)}, action: ${result.action?.action}")
+
                 if (result.action == null) {
                     Log.w("AgentCore", "Failed to parse action from: $content")
                 }
-                
+
                 // Phase 2: 处理 Call_API 动作
                 if (result.action?.action?.lowercase() == "call_api") {
                     val instruction = result.action.instruction ?: result.action.content ?: ""
                     val summary = callAPI(instruction)
-                    
+
                     if (summary != null) {
                         // 将摘要添加到历史中，供下一步使用
                         history.add(Message("user", "API Summary: $summary"))
                     }
                 }
-                
+
                 return result.action
             } else {
-                Log.e("AgentCore", "API Error: ${response.code()} ${response.errorBody()?.string()}")
+                // API调用失败，提供详细的错误信息
+                val errorBody = response.errorBody()?.string() ?: "无错误详情"
+                val errorMsg = when (response.code()) {
+                    401 -> "API认证失败，请检查API Key是否正确"
+                    403 -> "API访问被拒绝，请检查权限设置"
+                    404 -> "API地址不存在，请检查Base URL配置"
+                    429 -> "API调用频率超限，请稍后重试"
+                    500, 502, 503 -> "API服务器错误，请稍后重试"
+                    else -> "API调用失败 (HTTP ${response.code()}): ${errorBody.take(100)}"
+                }
+                Log.e("AgentCore", "API Error: $errorMsg")
+                Log.e("AgentCore", "Full error body: $errorBody")
+                onError?.invoke(errorMsg)  // 通知ViewModel显示错误
+                Log.d("AgentCore", "onError callback invoked with: $errorMsg")
             }
         } catch (e: Exception) {
-            Log.e("AgentCore", "Network Error", e)
+            val errorMsg = "网络错误: ${e.message ?: "未知错误"}"
+            Log.e("AgentCore", "Network exception", e)
+            Log.e("AgentCore", "Exception type: ${e.javaClass.simpleName}")
+            Log.e("AgentCore", "Exception message: ${e.message}")
+            onError?.invoke(errorMsg)  // 通知ViewModel显示错误
+            Log.d("AgentCore", "onError callback invoked for exception: $errorMsg")
         }
-        
+
+        Log.d("AgentCore", "step() returning null")
         return null
     }
 }
