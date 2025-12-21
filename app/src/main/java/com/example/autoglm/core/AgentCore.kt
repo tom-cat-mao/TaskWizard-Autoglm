@@ -171,15 +171,25 @@ class AgentCore(
     suspend fun step(screenshotBytes: ByteArray): Action? {
         Log.d("AgentCore", "step() called, isRunning=$isRunning, screenshotSize=${screenshotBytes.size} bytes")
 
+        // ✅ 添加：检查会话是否停止
         if (!isRunning) {
-            Log.w("AgentCore", "step() called but session is not running")
+            Log.w("AgentCore", "Session stopped, returning null")
             return null
         }
+
+        // ✅ 添加：协作式取消点
+        kotlinx.coroutines.yield()
 
         // 1. Prepare Image
         val base64Image = Base64.encodeToString(screenshotBytes, Base64.NO_WRAP)
         val imageUrl = "data:image/jpeg;base64,$base64Image"
         Log.d("AgentCore", "Screenshot encoded, base64 length: ${base64Image.length}")
+
+        // ✅ 添加：检查会话是否停止
+        if (!isRunning) {
+            Log.w("AgentCore", "Session stopped after encoding screenshot")
+            return null
+        }
 
         // 2. Build Screen Info (对齐 Python 版本)
         val screenInfo = buildScreenInfo()
@@ -214,6 +224,12 @@ class AgentCore(
 
         Log.d("AgentCore", "Prepared request with ${requestMessages.size} messages")
 
+        // ✅ 添加：API 调用前检查会话是否停止
+        if (!isRunning) {
+            Log.w("AgentCore", "Session stopped before API call")
+            return null
+        }
+
         // 5. Call API
         Log.d("AgentCore", "Calling API with model=${SettingsManager.model}")
         try {
@@ -228,6 +244,12 @@ class AgentCore(
             )
 
             Log.d("AgentCore", "API response received, code=${response.code()}, successful=${response.isSuccessful}")
+
+            // ✅ 添加：API 调用后检查会话是否停止
+            if (!isRunning) {
+                Log.w("AgentCore", "Session stopped after API call")
+                return null
+            }
 
             if (response.isSuccessful && response.body() != null) {
                 val responseMsg = response.body()!!.choices.first().message

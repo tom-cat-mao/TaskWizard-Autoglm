@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.autoglm.IAutoGLMService
+import com.example.autoglm.TaskScope
 import com.example.autoglm.api.ApiClient
 import com.example.autoglm.core.ActionExecutor
 import com.example.autoglm.core.AgentCore
@@ -79,6 +80,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // 悬浮窗控制
     private val _overlayEnabled = MutableStateFlow(false)
     val overlayEnabled: StateFlow<Boolean> = _overlayEnabled.asStateFlow()
+
+    // ==================== 动画状态管理（阶段1新增）====================
+
+    /**
+     * 是否正在执行缩小到悬浮窗的动画
+     */
+    private val _isAnimatingToOverlay = MutableStateFlow(false)
+    val isAnimatingToOverlay: StateFlow<Boolean> = _isAnimatingToOverlay.asStateFlow()
+
+    /**
+     * 是否正在从悬浮窗放大回来的动画
+     */
+    private val _isAnimatingFromOverlay = MutableStateFlow(false)
+    val isAnimatingFromOverlay: StateFlow<Boolean> = _isAnimatingFromOverlay.asStateFlow()
+
+    /**
+     * 是否应该finish Activity
+     * 用于在动画完成后通知MainActivity执行finish
+     */
+    private val _shouldFinishActivity = MutableStateFlow(false)
+    val shouldFinishActivity: StateFlow<Boolean> = _shouldFinishActivity.asStateFlow()
 
     init {
         // 初始化SettingsManager
@@ -475,16 +497,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         Log.d(TAG, "  API Key: ${_state.value.apiKey.take(10)}...")
         Log.d(TAG, "  Model: ${_state.value.model}")
 
-        // 在协程中执行任务
-        taskJob = viewModelScope.launch(Dispatchers.IO) {
+        // 阶段2新增：启动缩小动画流程
+        viewModelScope.launch {
+            // 1. 触发缩小动画
+            _isAnimatingToOverlay.value = true
+            Log.d(TAG, "Animation to overlay started")
+
+            // 2. 等待动画完成（300ms动画 + 50ms缓冲）
+            delay(350)
+            Log.d(TAG, "Animation to overlay completed")
+
+            // 3. 通知MainActivity执行finish
+            withContext(Dispatchers.Main) {
+                _shouldFinishActivity.value = true
+            }
+            Log.d(TAG, "Finish activity signal sent")
+        }
+
+        // 4. 使用 TaskScope.launchTask 启动任务
+        taskJob = TaskScope.launchTask(agentCore!!) {
             try {
                 executeTask(task)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                Log.d(TAG, "Task cancelled: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    addSystemMessage("任务已取消", SystemMessageType.INFO)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Task execution failed", e)
-                addSystemMessage("任务执行失败: ${e.message}", SystemMessageType.ERROR)
+                withContext(Dispatchers.Main) {
+                    addSystemMessage("任务执行失败: ${e.message}", SystemMessageType.ERROR)
+                }
             } finally {
-                // 清理资源
-                cleanupTask()
+                withContext(Dispatchers.Main) {
+                    cleanupTask()
+                }
             }
         }
     }
@@ -493,15 +540,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * 停止任务
      */
     fun stopTask() {
-        agentCore?.stop()
-        taskJob?.cancel()
-        taskJob = null
+        Log.d(TAG, "stopTask() called")
 
+        // 立即还原IME（同步调用，确保执行）
+        Log.d(TAG, "Restoring IME immediately before task cancellation")
+        actionExecutor?.restoreIME()
+
+        // 使用 TaskScope 停止任务
+        TaskScope.stopCurrentTask()
+
+        taskJob = null
         _state.update { it.copy(isRunning = false) }
         addSystemMessage("任务已停止", SystemMessageType.INFO)
-
-        // 还原IME
-        actionExecutor?.restoreIME()
 
         // 停止悬浮窗服务
         stopOverlayService()
@@ -511,128 +561,156 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * 执行任务的主循环
      */
     private suspend fun executeTask(task: String) {
-        // 1. 初始化ApiClient（使用当前配置）
-        val currentState = _state.value
-        ApiClient.init(currentState.baseUrl, currentState.apiKey)
-        Log.d(TAG, "ApiClient initialized with baseUrl=${currentState.baseUrl}, apiKey=${currentState.apiKey.take(10)}...")
+        try {
+            // 1. 初始化ApiClient（使用当前配置）
+            val currentState = _state.value
+            ApiClient.init(currentState.baseUrl, currentState.apiKey)
+            Log.d(TAG, "ApiClient initialized with baseUrl=${currentState.baseUrl}, apiKey=${currentState.apiKey.take(10)}...")
 
-        // 2. 启动悬浮窗服务
-        withContext(Dispatchers.Main) {
-            startOverlayService()
-        }
-        // 标记任务开始
-        OverlayService.instance?.markTaskStarted()
-
-        // 3. 初始化AgentCore
-        agentCore?.startSession(task)
-
-        // 4. 绑定Shizuku服务
-        service = try {
-            ShizukuManager.bindService(getApplication())
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to bind Shizuku service", e)
-            addSystemMessage("无法连接Shizuku服务", SystemMessageType.ERROR)
-            return
-        }
-
-        // 5. 初始化ActionExecutor
-        val screenSize = getScreenSize()
-        actionExecutor = ActionExecutor(
-            context = getApplication(),
-            service = service!!,
-            screenWidth = screenSize.first,
-            screenHeight = screenSize.second,
-            onTakeOver = { message ->
-                handleTakeOver(message)
-            },
-            onNote = { note ->
-                agentCore?.addNote(note)
-                Log.d(TAG, "Note added: $note")
-            },
-            onConfirmation = { message ->
-                handleConfirmation(message)
+            // 2. 启动悬浮窗服务
+            withContext(Dispatchers.Main) {
+                startOverlayService()
             }
-        )
+            // 标记任务开始
+            OverlayService.instance?.markTaskStarted()
 
-        // 6. 执行步骤循环
-        var stepCount = 0
-        var consecutiveFailures = 0  // 连续失败计数
-        val MAX_CONSECUTIVE_FAILURES = 3  // 最大连续失败次数
+            // 3. 初始化AgentCore
+            agentCore?.startSession(task)
 
-        while (agentCore?.isSessionRunning() == true && stepCount < MAX_STEPS) {
-            stepCount++
-            Log.d(TAG, "Step $stepCount")
-
-            // 6.1 截图
-            val screenshot = captureScreenshot()
-            if (screenshot == null) {
-                addSystemMessage("截图失败", SystemMessageType.ERROR)
-                break
-            }
-
-            // 6.2 更新悬浮窗：开始思考
-            OverlayService.instance?.updateThinking(true)
-
-            // 6.3 调用AgentCore获取下一步动作
-            val action = agentCore?.step(screenshot)
-
-            // 6.4 更新悬浮窗：结束思考
-            OverlayService.instance?.updateThinking(false)
-
-            // 6.5 显示AI思考内容
-            agentCore?.lastThink?.let { think ->
-                if (think.isNotBlank()) {
-                    addThinkMessage(think)
-                    consecutiveFailures = 0  // 有思考内容说明成功，重置计数
+            // 4. 绑定Shizuku服务
+            service = try {
+                ShizukuManager.bindService(getApplication())
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to bind Shizuku service", e)
+                withContext(Dispatchers.Main) {
+                    addSystemMessage("无法连接Shizuku服务", SystemMessageType.ERROR)
                 }
+                return
             }
 
-            // 6.6 执行动作
-            if (action != null) {
-                addActionMessage(action)
-                consecutiveFailures = 0  // 有动作说明成功，重置计数
+            // 5. 初始化ActionExecutor
+            val screenSize = getScreenSize()
+            actionExecutor = ActionExecutor(
+                context = getApplication(),
+                service = service!!,
+                screenWidth = screenSize.first,
+                screenHeight = screenSize.second,
+                onTakeOver = { message ->
+                    handleTakeOver(message)
+                },
+                onNote = { note ->
+                    agentCore?.addNote(note)
+                    Log.d(TAG, "Note added: $note")
+                },
+                onConfirmation = { message ->
+                    handleConfirmation(message)
+                }
+            )
 
-                // 更新悬浮窗：显示动作
-                val actionText = formatActionForOverlay(action)
-                OverlayService.instance?.updateAction(actionText)
+            // 关键：注册清理回调到 TaskScope
+            TaskScope.registerCleanupCallback {
+                Log.d(TAG, "Cleanup callback invoked - restoring IME")
+                actionExecutor?.restoreIME()
+            }
 
-                // 检查是否是finish动作
-                if (action.action?.lowercase() == "finish") {
-                    val message = action.message ?: action.content ?: "任务完成"
-                    addSystemMessage(message, SystemMessageType.SUCCESS)
-                    // 标记任务完成
-                    OverlayService.instance?.markCompleted()
+            // 6. 执行步骤循环
+            var stepCount = 0
+            var consecutiveFailures = 0  // 连续失败计数
+            val MAX_CONSECUTIVE_FAILURES = 3  // 最大连续失败次数
+
+            while (agentCore?.isSessionRunning() == true && stepCount < MAX_STEPS) {
+                stepCount++
+                Log.d(TAG, "Step $stepCount")
+
+                // 6.1 截图
+                val screenshot = captureScreenshot()
+                if (screenshot == null) {
+                    withContext(Dispatchers.Main) {
+                        addSystemMessage("截图失败", SystemMessageType.ERROR)
+                    }
                     break
                 }
 
-                // 执行动作，如果返回false表示用户取消
-                val shouldContinue = actionExecutor?.execute(action) ?: true
-                if (!shouldContinue) {
-                    addSystemMessage("用户取消操作，任务已停止", SystemMessageType.WARNING)
-                    break
+                // 6.2 更新悬浮窗：开始思考
+                OverlayService.instance?.updateThinking(true)
+
+                // 6.3 调用AgentCore获取下一步动作
+                val action = agentCore?.step(screenshot)
+
+                // 6.4 更新悬浮窗：结束思考
+                OverlayService.instance?.updateThinking(false)
+
+                // 6.5 显示AI思考内容
+                agentCore?.lastThink?.let { think ->
+                    if (think.isNotBlank()) {
+                        withContext(Dispatchers.Main) {
+                            addThinkMessage(think)
+                        }
+                        consecutiveFailures = 0  // 有思考内容说明成功，重置计数
+                    }
                 }
 
-                // 等待一小段时间让UI更新
-                delay(500)
-            } else {
-                // 处理action为null的情况
-                consecutiveFailures++
-                Log.w(TAG, "No action returned from AgentCore (failure $consecutiveFailures/$MAX_CONSECUTIVE_FAILURES)")
+                // 6.6 执行动作
+                if (action != null) {
+                    withContext(Dispatchers.Main) {
+                        addActionMessage(action)
+                    }
+                    consecutiveFailures = 0  // 有动作说明成功，重置计数
 
-                if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                    addSystemMessage(
-                        "连续${MAX_CONSECUTIVE_FAILURES}次获取动作失败，任务已停止。\n请检查：\n1. API配置是否正确\n2. 网络连接是否正常\n3. API服务是否可用",
-                        SystemMessageType.ERROR
-                    )
-                    break  // 停止循环
+                    // 更新悬浮窗：显示动作
+                    val actionText = formatActionForOverlay(action)
+                    OverlayService.instance?.updateAction(actionText)
+
+                    // 检查是否是finish动作
+                    if (action.action?.lowercase() == "finish") {
+                        val message = action.message ?: action.content ?: "任务完成"
+                        withContext(Dispatchers.Main) {
+                            addSystemMessage(message, SystemMessageType.SUCCESS)
+                        }
+                        // 标记任务完成
+                        OverlayService.instance?.markCompleted()
+                        break
+                    }
+
+                    // 执行动作，如果返回false表示用户取消
+                    val shouldContinue = actionExecutor?.execute(action) ?: true
+                    if (!shouldContinue) {
+                        withContext(Dispatchers.Main) {
+                            addSystemMessage("用户取消操作，任务已停止", SystemMessageType.WARNING)
+                        }
+                        break
+                    }
+
+                    // 等待一小段时间让UI更新
+                    delay(500)
+                } else {
+                    // 处理action为null的情况
+                    consecutiveFailures++
+                    Log.w(TAG, "No action returned from AgentCore (failure $consecutiveFailures/$MAX_CONSECUTIVE_FAILURES)")
+
+                    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                        withContext(Dispatchers.Main) {
+                            addSystemMessage(
+                                "连续${MAX_CONSECUTIVE_FAILURES}次获取动作失败，任务已停止。\n请检查：\n1. API配置是否正确\n2. 网络连接是否正常\n3. API服务是否可用",
+                                SystemMessageType.ERROR
+                            )
+                        }
+                        break  // 停止循环
+                    }
+
+                    delay(1000)
                 }
-
-                delay(1000)
             }
-        }
 
-        if (stepCount >= MAX_STEPS) {
-            addSystemMessage("达到最大步骤数限制", SystemMessageType.WARNING)
+            if (stepCount >= MAX_STEPS) {
+                withContext(Dispatchers.Main) {
+                    addSystemMessage("达到最大步骤数限制", SystemMessageType.WARNING)
+                }
+            }
+        } finally {
+            // 关键：finally 块保证清理代码执行
+            Log.d(TAG, "executeTask finally block - restoring IME")
+            actionExecutor?.restoreIME()
         }
     }
 
@@ -807,6 +885,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         getApplication<Application>().stopService(intent)
         _overlayEnabled.value = false
         Log.d(TAG, "Overlay service stopped")
+    }
+
+    // ==================== 动画控制方法（阶段1新增）====================
+
+    /**
+     * 设置是否正在执行缩小到悬浮窗的动画
+     */
+    fun setAnimatingToOverlay(isAnimating: Boolean) {
+        _isAnimatingToOverlay.value = isAnimating
+        Log.d(TAG, "setAnimatingToOverlay: $isAnimating")
+    }
+
+    /**
+     * 设置是否正在从悬浮窗放大回来的动画
+     */
+    fun setAnimatingFromOverlay(isAnimating: Boolean) {
+        _isAnimatingFromOverlay.value = isAnimating
+        Log.d(TAG, "setAnimatingFromOverlay: $isAnimating")
+    }
+
+    /**
+     * 重置finish Activity标志
+     * 在Activity finish后调用，避免重复finish
+     */
+    fun resetFinishActivityFlag() {
+        _shouldFinishActivity.value = false
+        Log.d(TAG, "resetFinishActivityFlag")
     }
 
     /**

@@ -74,7 +74,7 @@ fun OverlayContent(
 }
 
 /**
- * 处理点击事件
+ * 处理点击事件（阶段3修改）
  */
 private fun handleClick(
     state: OverlayState,
@@ -84,12 +84,20 @@ private fun handleClick(
 ) {
     when (state.displayState) {
         OverlayDisplayState.CONFIRM_EXIT -> {
-            // 确认退出
+            // 第3次点击：确认退出
             onExit()
         }
         OverlayDisplayState.COMPLETED -> {
-            // 返回应用
-            onReturnToApp()
+            // 完成状态的点击处理
+            if (state.getAlpha() < 1f) {
+                // 第1次点击：半透明 → 不透明
+                viewModel.handleClick()
+            } else {
+                // 第2次点击：触发放大动画并返回应用
+                // 注意：这里需要通过OverlayService调用animateToFullScreen
+                // 由于这里无法直接访问OverlayService，需要通过onReturnToApp回调
+                onReturnToApp()
+            }
         }
         else -> {
             // 正常状态切换

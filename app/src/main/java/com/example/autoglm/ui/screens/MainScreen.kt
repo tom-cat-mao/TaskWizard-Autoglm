@@ -31,6 +31,9 @@ fun MainScreen(
     val confirmationRequest by viewModel.confirmationRequest.collectAsState()
     val takeOverRequest by viewModel.takeOverRequest.collectAsState()
 
+    // 阶段2新增：收集动画状态
+    val isAnimatingToOverlay by viewModel.isAnimatingToOverlay.collectAsState()
+
     // 检测IME（键盘）是否可见
     val density = LocalDensity.current
     val ime = WindowInsets.ime
@@ -40,7 +43,9 @@ fun MainScreen(
         }
     }.value
 
-    Scaffold(
+    // 阶段2新增：使用AnimatedMainContent包裹整个界面
+    AnimatedMainContent(isAnimating = isAnimatingToOverlay) {
+        Scaffold(
         topBar = {
             TopStatusBar(
                 modelName = state.model,
@@ -69,31 +74,32 @@ fun MainScreen(
         )
     }
 
-    // ==================== 对话框 ====================
+        // ==================== 对话框 ====================
 
-    // 确认对话框（敏感操作）
-    confirmationRequest?.let { message ->
-        ConfirmDialog(
-            message = message,
-            onConfirm = {
-                viewModel.confirmAction(true)
-            },
-            onDismiss = {
-                viewModel.confirmAction(false)
-            }
-        )
-    }
+        // 确认对话框（敏感操作）
+        confirmationRequest?.let { message ->
+            ConfirmDialog(
+                message = message,
+                onConfirm = {
+                    viewModel.confirmAction(true)
+                },
+                onDismiss = {
+                    viewModel.confirmAction(false)
+                }
+            )
+        }
 
-    // 人工接管对话框
-    takeOverRequest?.let { message ->
-        TakeOverDialog(
-            message = message,
-            onComplete = {
-                viewModel.completeTakeOver()
-            },
-            onCancel = {
-                viewModel.cancelTakeOver()
-            }
-        )
-    }
+        // 人工接管对话框
+        takeOverRequest?.let { message ->
+            TakeOverDialog(
+                message = message,
+                onComplete = {
+                    viewModel.completeTakeOver()
+                },
+                onCancel = {
+                    viewModel.cancelTakeOver()
+                }
+            )
+        }
+    } // AnimatedMainContent结束
 }

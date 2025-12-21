@@ -151,8 +151,17 @@ class OverlayService : LifecycleService() {
                     AutoGLMTheme {
                         OverlayContent(
                             viewModel = overlayViewModel,
-                            onExit = { stopSelf() },
-                            onReturnToApp = { returnToMainActivity() }
+                            onExit = {
+                                // 直接调用停止任务
+                                stopTask()
+                                stopSelf()
+                            },
+                            onReturnToApp = {
+                                // 阶段3修改：调用放大动画
+                                animateToFullScreen {
+                                    returnToMainActivity()
+                                }
+                            }
                         )
                     }
                 }
@@ -305,16 +314,80 @@ class OverlayService : LifecycleService() {
         overlayViewModel.markTaskStarted()
     }
 
+    // ==================== 动画方法（阶段3新增）====================
+
+    /**
+     * 执行放大到全屏的动画
+     *
+     * 流程：
+     * 1. 回调启动MainActivity
+     * 2. 延迟50ms确保Activity已启动
+     * 3. 执行放大动画（缩放到10倍，淡出）
+     * 4. 动画结束后关闭Service
+     *
+     * @param onAnimationStart 动画开始前的回调，用于启动MainActivity
+     */
+    fun animateToFullScreen(onAnimationStart: () -> Unit) {
+        Log.d(TAG, "animateToFullScreen: starting")
+
+        overlayView?.let { view ->
+            // 1. 先回调启动MainActivity
+            onAnimationStart()
+            Log.d(TAG, "animateToFullScreen: MainActivity launch callback invoked")
+
+            // 2. 延迟50ms确保Activity已启动
+            view.postDelayed({
+                Log.d(TAG, "animateToFullScreen: starting animation")
+
+                // 3. 执行放大动画
+                view.animate()
+                    .scaleX(10f)  // 放大到10倍
+                    .scaleY(10f)
+                    .alpha(0f)    // 淡出
+                    .setDuration(300)  // 300ms动画时长
+                    .withEndAction {
+                        // 4. 动画结束后关闭Service
+                        Log.d(TAG, "animateToFullScreen: animation completed, stopping service")
+                        stopSelf()
+                    }
+                    .start()
+            }, 50)
+        } ?: run {
+            Log.e(TAG, "animateToFullScreen: overlayView is null")
+            stopSelf()
+        }
+    }
+
     // ==================== 辅助方法 ====================
 
     /**
-     * 返回主Activity
+     * 停止任务（直接调用）
+     * 不再使用广播机制，直接调用 TaskScope 停止任务
+     */
+    private fun stopTask() {
+        try {
+            Log.d(TAG, "stopTask: Directly calling TaskScope.stopCurrentTask()")
+            com.example.autoglm.TaskScope.stopCurrentTask()
+            Log.d(TAG, "stopTask: Task stop requested")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to stop task", e)
+        }
+    }
+
+    /**
+     * 返回主Activity（阶段3修改）
+     * 添加FROM_OVERLAY标志，通知MainActivity显示放大动画
      */
     private fun returnToMainActivity() {
         try {
             val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-            launchIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            launchIntent?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                // 阶段3新增：添加FROM_OVERLAY标志
+                putExtra("FROM_OVERLAY", true)
+            }
             startActivity(launchIntent)
+            Log.d(TAG, "returnToMainActivity: launched with FROM_OVERLAY flag")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to return to main activity", e)
         }

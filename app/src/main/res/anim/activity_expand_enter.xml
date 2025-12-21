@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Activity放大进入动画 - 从小窗放大到全屏 -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="300"
+    android:interpolator="@android:anim/decelerate_interpolator">
+
+    <!-- 从10%放大到全屏 -->
+    <scale
+        android:fromXScale="0.1"
+        android:fromYScale="0.1"
+        android:toXScale="1.0"
+        android:toYScale="1.0"
+        android:pivotX="100%"
+        android:pivotY="0%" />
+
+    <!-- 从右上角移动到中心 -->
+    <translate
+        android:fromXDelta="45%"
+        android:fromYDelta="-45%"
+        android:toXDelta="0%"
+        android:toYDelta="0%" />
+
+    <!-- 淡入效果 -->
+    <alpha
+        android:fromAlpha="0.0"
+        android:toAlpha="1.0" />
+</set>

@@ -37,6 +37,36 @@ class MainActivity : ComponentActivity() {
             val viewModel: MainViewModel = viewModel()
             val state by viewModel.state.collectAsState()
 
+            // 阶段2新增：监听finish信号
+            val shouldFinish by viewModel.shouldFinishActivity.collectAsState()
+
+            // 阶段3新增：检查是否从小窗返回
+            val fromOverlay = intent?.getBooleanExtra("FROM_OVERLAY", false) ?: false
+
+            // 阶段3新增：处理从小窗返回的放大动画
+            androidx.compose.runtime.LaunchedEffect(fromOverlay) {
+                if (fromOverlay) {
+                    // 设置放大动画状态
+                    viewModel.setAnimatingFromOverlay(true)
+                    // 等待动画完成
+                    kotlinx.coroutines.delay(350)
+                    // 重置动画状态
+                    viewModel.setAnimatingFromOverlay(false)
+                }
+            }
+
+            // 阶段2新增：处理finish逻辑
+            androidx.compose.runtime.LaunchedEffect(shouldFinish) {
+                if (shouldFinish) {
+                    // 执行finish
+                    finish()
+                    // 设置透明退出动画（保持可见，让Compose动画完成）
+                    overridePendingTransition(0, R.anim.transparent)
+                    // 重置finish标志
+                    viewModel.resetFinishActivityFlag()
+                }
+            }
+
             // 创建导航控制器
             val navController = rememberNavController()
 

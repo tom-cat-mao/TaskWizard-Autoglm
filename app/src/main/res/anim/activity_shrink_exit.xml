@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Activity缩小退出动画 - 从全屏缩小到右上角 -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="300"
+    android:interpolator="@android:anim/decelerate_interpolator">
+
+    <!-- 缩放到10%大小 -->
+    <scale
+        android:fromXScale="1.0"
+        android:fromYScale="1.0"
+        android:toXScale="0.1"
+        android:toYScale="0.1"
+        android:pivotX="100%"
+        android:pivotY="0%" />
+
+    <!-- 移动到右上角 -->
+    <translate
+        android:fromXDelta="0%"
+        android:fromYDelta="0%"
+        android:toXDelta="45%"
+        android:toYDelta="-45%" />
+</set>
