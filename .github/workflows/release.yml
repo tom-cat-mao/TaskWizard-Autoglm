@@ -45,20 +45,20 @@ jobs:
 
       # 6. 编译 Release APK（已签名）
       - name: Build Release APK
-        run: ./gradlew assembleRelease --stacktrace
+        run: ./gradlew assembleRelease --stacktrace --no-daemon --parallel
 
       # 7. 重命名 APK
       - name: Rename APK
         run: |
           VERSION_NAME=${{ github.ref_name }}
           mv app/build/outputs/apk/release/app-release.apk \
-             AutoGLM-${VERSION_NAME}.apk
+             TaskWizard-${VERSION_NAME}.apk
 
       # 8. 计算 SHA256 校验和
       - name: Calculate SHA256
         id: sha256
         run: |
-          SHA256=$(sha256sum AutoGLM-${{ github.ref_name }}.apk | awk '{print $1}')
+          SHA256=$(sha256sum TaskWizard-${{ github.ref_name }}.apk | awk '{print $1}')
           echo "sha256=$SHA256" >> $GITHUB_OUTPUT
           echo "SHA256: $SHA256"
 
@@ -148,13 +148,13 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: AutoGLM-${{ github.ref_name }}.apk
+          files: TaskWizard-${{ github.ref_name }}.apk
           body: |
-            ## 🚀 AutoGLM ${{ github.ref_name }}
+            ## 🚀 TaskWizard ${{ github.ref_name }}
 
             ### 📦 下载
 
-            **APK 文件：** [AutoGLM-${{ github.ref_name }}.apk](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/AutoGLM-${{ github.ref_name }}.apk)
+            **APK 文件：** [TaskWizard-${{ github.ref_name }}.apk](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/TaskWizard-${{ github.ref_name }}.apk)
 
             **SHA256 校验和：**
             ```

@@ -5,12 +5,12 @@ plugins {
 }
 
 android {
-    namespace = "com.example.autoglm"
+    namespace = "com.taskwizard.android"
     compileSdk = 34
     buildToolsVersion = "34.0.0"
 
     defaultConfig {
-        applicationId = "com.example.autoglm"
+        applicationId = "com.taskwizard.android"
         minSdk = 26 // Android 8.0+
         targetSdk = 34
         versionCode = 1
