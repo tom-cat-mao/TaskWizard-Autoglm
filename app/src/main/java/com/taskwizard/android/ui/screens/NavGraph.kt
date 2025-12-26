@@ -7,6 +7,8 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import com.taskwizard.android.ui.viewmodel.HistoryViewModel
+import com.taskwizard.android.ui.viewmodel.HistoryViewModelFactory
 import com.taskwizard.android.ui.viewmodel.MainViewModel
 
 /**
@@ -15,6 +17,7 @@ import com.taskwizard.android.ui.viewmodel.MainViewModel
 object NavRoutes {
     const val MAIN = "main"
     const val SETTINGS = "settings"
+    const val HISTORY = "history"
 }
 
 /**
@@ -70,6 +73,9 @@ fun AppNavGraph(
                 onNavigateToSettings = {
                     navController.navigate(NavRoutes.SETTINGS)
                 },
+                onNavigateToHistory = {
+                    navController.navigate(NavRoutes.HISTORY)
+                },
                 viewModel = viewModel
             )
         }
@@ -81,6 +87,22 @@ fun AppNavGraph(
                     navController.popBackStack()
                 },
                 viewModel = viewModel
+            )
+        }
+
+        // 历史记录页面
+        composable(NavRoutes.HISTORY) {
+            val historyViewModel = androidx.lifecycle.viewmodel.compose.viewModel<HistoryViewModel>(
+                factory = HistoryViewModelFactory(
+                    // Get Application from LocalContext in the composable
+                    androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application
+                )
+            )
+            HistoryScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                viewModel = historyViewModel
             )
         }
     }

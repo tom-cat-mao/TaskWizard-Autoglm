@@ -11,6 +11,8 @@ import com.taskwizard.android.api.ApiClient
 import com.taskwizard.android.core.ActionExecutor
 import com.taskwizard.android.core.AgentCore
 import com.taskwizard.android.data.*
+import com.taskwizard.android.data.history.HistoryRepository
+import com.taskwizard.android.data.history.TaskStatus
 import com.taskwizard.android.manager.OverlayPermissionManager
 import com.taskwizard.android.manager.ShizukuManager
 import com.taskwizard.android.service.OverlayService
@@ -65,6 +67,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var actionExecutor: ActionExecutor? = null
     private var taskJob: Job? = null
     private var service: IAutoGLMService? = null
+
+    // ==================== 历史记录追踪 ====================
+
+    private val historyRepository = HistoryRepository(application)
+    private var currentTaskHistoryId: Long? = null
+    private var taskStartTime: Long = 0
+    private val taskMessages = mutableListOf<MessageItem>()
+    private val taskActions = mutableListOf<Action>()
+    private val taskErrors = mutableListOf<String>()
 
     // 对话框状态
     private val _confirmationRequest = MutableStateFlow<String?>(null)
@@ -374,9 +385,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * 性能优化：使用 ImmutableList plus 运算符，高效添加元素
      */
     fun addThinkMessage(content: String) {
+        val message = MessageItem.ThinkMessage(content = content)
         _state.update {
-            it.copy(messages = (it.messages + MessageItem.ThinkMessage(content = content)).toPersistentList())
+            it.copy(messages = (it.messages + message).toPersistentList())
         }
+        // 记录到历史
+        recordTaskMessage(message)
     }
 
     /**
@@ -387,6 +401,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update {
             it.copy(messages = (it.messages + MessageItem.ActionMessage(action = action)).toPersistentList())
         }
+        // 记录到历史
+        recordTaskAction(action)
     }
 
     /**
@@ -543,7 +559,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         taskJob = null
         _state.update { it.copy(isRunning = false) }
+
+        // ✅ 修复：用户手动停止后清空输入框
+        clearTask()
+
         addSystemMessage("任务已停止", SystemMessageType.INFO)
+
+        // 取消历史记录
+        cancelTaskHistory()
 
         // 停止悬浮窗服务
         stopOverlayService()
@@ -603,10 +626,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * 这是原有的启动逻辑，从 startTask() 中提取出来
      */
     private fun startTaskAfterPreCheck(task: String) {
+        // 创建任务历史记录
+        createTaskHistory(task, _state.value.model)
+
         // 启动任务
         _state.update { it.copy(isRunning = true) }
 
+        // ✅ 修复：任务启动后立即清空输入框
+        clearTask()
+
         addSystemMessage("任务启动: $task", SystemMessageType.INFO)
+
+        // 更新任务状态为运行中
+        updateTaskStatusRunning()
 
         Log.d(TAG, "Starting task with API config:")
         Log.d(TAG, "  Base URL: ${_state.value.baseUrl}")
@@ -784,10 +816,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         // ✅ 恢复：添加到主界面消息列表
                         withContext(Dispatchers.Main) {
                             addSystemMessage(message, SystemMessageType.SUCCESS)
+                            // ✅ 修复：任务完成后清空输入框
+                            clearTask()
                         }
                         Log.d(TAG, "Task finished: $message")
                         // 标记任务完成
                         OverlayService.instance?.markCompleted()
+                        // 完成历史记录
+                        completeTaskHistory(message)
                         break
                     }
 
@@ -819,12 +855,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     "连续失败${MAX_CONSECUTIVE_FAILURES}次，任务已停止",
                                     SystemMessageType.ERROR
                                 )
+                                // ✅ 修复：任务失败停止后清空输入框
+                                clearTask()
                             }
                             Log.e(TAG, "Max consecutive failures reached, stopping task")
-                            delay(3000)
                             // 停止悬浮窗服务
+                            delay(3000)
                             val intent = Intent(getApplication(), OverlayService::class.java)
                             getApplication<Application>().stopService(intent)
+                            // 标记历史为失败
+                            failTaskHistory("连续失败${MAX_CONSECUTIVE_FAILURES}次")
                             break
                         }
 
@@ -888,6 +928,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     addSystemMessage("已达到最大步骤数($MAX_STEPS)，任务停止", SystemMessageType.WARNING)
                 }
                 Log.w(TAG, "Max steps reached")
+                // 标记历史为失败
+                failTaskHistory("达到最大步骤数")
             }
         } finally {
             // 关键：finally 块保证清理代码执行
@@ -1148,6 +1190,201 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(isRunning = false) }
         taskJob = null
         addSystemMessage("任务已停止", SystemMessageType.INFO)
+    }
+
+    // ==================== 历史记录追踪方法 ====================
+
+    /**
+     * 创建任务历史记录
+     */
+    private fun createTaskHistory(task: String, model: String) {
+        viewModelScope.launch {
+            try {
+                currentTaskHistoryId = historyRepository.createTask(task, model)
+                taskStartTime = System.currentTimeMillis()
+                // 清空之前的追踪数据
+                taskMessages.clear()
+                taskActions.clear()
+                taskErrors.clear()
+                Log.d(TAG, "Created task history with ID: $currentTaskHistoryId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to create task history", e)
+            }
+        }
+    }
+
+    /**
+     * 更新任务状态为运行中
+     */
+    private fun updateTaskStatusRunning() {
+        viewModelScope.launch {
+            try {
+                currentTaskHistoryId?.let { id ->
+                    historyRepository.updateTaskStatus(id, TaskStatus.RUNNING.name)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to update task status to running", e)
+            }
+        }
+    }
+
+    /**
+     * 记录任务消息
+     */
+    fun recordTaskMessage(message: MessageItem) {
+        taskMessages.add(message)
+        viewModelScope.launch {
+            try {
+                currentTaskHistoryId?.let { id ->
+                    historyRepository.updateTaskMessages(id, taskMessages.toList())
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to record task message", e)
+            }
+        }
+    }
+
+    /**
+     * 记录任务动作
+     */
+    fun recordTaskAction(action: Action) {
+        taskActions.add(action)
+        viewModelScope.launch {
+            try {
+                currentTaskHistoryId?.let { id ->
+                    historyRepository.updateTaskActions(id, taskActions.toList())
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to record task action", e)
+            }
+        }
+    }
+
+    /**
+     * 记录任务错误
+     */
+    fun recordTaskError(error: String) {
+        taskErrors.add(error)
+        viewModelScope.launch {
+            try {
+                currentTaskHistoryId?.let { id ->
+                    historyRepository.addErrorMessage(id, error)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to record task error", e)
+            }
+        }
+    }
+
+    /**
+     * 更新任务步骤数
+     */
+    fun updateTaskStepCount(stepCount: Int) {
+        viewModelScope.launch {
+            try {
+                currentTaskHistoryId?.let { id ->
+                    historyRepository.updateTaskStepCount(id, stepCount)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to update task step count", e)
+            }
+        }
+    }
+
+    /**
+     * 完成任务历史记录（成功）
+     */
+    private fun completeTaskHistory(message: String?) {
+        viewModelScope.launch {
+            try {
+                currentTaskHistoryId?.let { id ->
+                    val endTime = System.currentTimeMillis()
+                    val duration = endTime - taskStartTime
+                    val stepCount = taskMessages.count { it is MessageItem.ThinkMessage }
+
+                    historyRepository.updateTaskCompletion(
+                        taskId = id,
+                        endTime = endTime,
+                        durationMs = duration,
+                        stepCount = stepCount
+                    )
+                    historyRepository.updateTaskStatus(
+                        taskId = id,
+                        status = TaskStatus.COMPLETED.name,
+                        statusMessage = message
+                    )
+                    Log.d(TAG, "Completed task history: $id")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to complete task history", e)
+            } finally {
+                currentTaskHistoryId = null
+            }
+        }
+    }
+
+    /**
+     * 标记任务历史记录为失败
+     */
+    private fun failTaskHistory(error: String?) {
+        viewModelScope.launch {
+            try {
+                currentTaskHistoryId?.let { id ->
+                    val endTime = System.currentTimeMillis()
+                    val duration = endTime - taskStartTime
+                    val stepCount = taskMessages.count { it is MessageItem.ThinkMessage }
+
+                    historyRepository.updateTaskCompletion(
+                        taskId = id,
+                        endTime = endTime,
+                        durationMs = duration,
+                        stepCount = stepCount
+                    )
+                    historyRepository.updateTaskStatus(
+                        taskId = id,
+                        status = TaskStatus.FAILED.name,
+                        statusMessage = error
+                    )
+                    Log.d(TAG, "Failed task history: $id")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to mark task history as failed", e)
+            } finally {
+                currentTaskHistoryId = null
+            }
+        }
+    }
+
+    /**
+     * 取消任务历史记录
+     */
+    private fun cancelTaskHistory() {
+        viewModelScope.launch {
+            try {
+                currentTaskHistoryId?.let { id ->
+                    val endTime = System.currentTimeMillis()
+                    val duration = endTime - taskStartTime
+                    val stepCount = taskMessages.count { it is MessageItem.ThinkMessage }
+
+                    historyRepository.updateTaskCompletion(
+                        taskId = id,
+                        endTime = endTime,
+                        durationMs = duration,
+                        stepCount = stepCount
+                    )
+                    historyRepository.updateTaskStatus(
+                        taskId = id,
+                        status = TaskStatus.CANCELLED.name,
+                        statusMessage = "用户取消"
+                    )
+                    Log.d(TAG, "Cancelled task history: $id")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to cancel task history", e)
+            } finally {
+                currentTaskHistoryId = null
+            }
+        }
     }
 }
 

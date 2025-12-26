@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose") version "2.0.0"
+    id("com.google.devtools.ksp") version "2.0.0-1.0.24"
 }
 
 android {
@@ -149,6 +150,12 @@ dependencies {
     // JSON
     implementation("com.google.code.gson:gson:2.10.1")
 
+    // ==================== Room Database (History Feature) ====================
+    val roomVersion = "2.6.1"
+    implementation("androidx.room:room-runtime:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion")
+    ksp("androidx.room:room-compiler:$roomVersion")
+
     // ==================== 测试依赖 ====================
 
     // JUnit 4
@@ -183,4 +190,7 @@ dependencies {
 
     // Navigation Test
     androidTestImplementation("androidx.navigation:navigation-testing:2.7.6")
+
+    // Room Testing (for history feature tests)
+    testImplementation("androidx.room:room-testing:2.6.1")
 }

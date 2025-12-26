@@ -2,6 +2,7 @@ package com.taskwizard.android.ui.components
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -17,6 +18,7 @@ import androidx.compose.ui.unit.dp
  * @param hasShizuku Shizuku是否可用
  * @param hasADBKeyboard ADB Keyboard是否可用
  * @param onSettingsClick 设置按钮点击回调
+ * @param onHistoryClick 历史按钮点击回调
  * @param modifier 修饰符
  */
 @Composable
@@ -25,6 +27,7 @@ fun TopStatusBar(
     hasShizuku: Boolean,
     hasADBKeyboard: Boolean,
     onSettingsClick: () -> Unit,
+    onHistoryClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -57,13 +60,24 @@ fun TopStatusBar(
                 }
             }
 
-            // 右侧：设置按钮
-            IconButton(onClick = onSettingsClick) {
-                Icon(
-                    imageVector = Icons.Rounded.Settings,
-                    contentDescription = "设置",
-                    tint = MaterialTheme.colorScheme.onSurface
-                )
+            // 右侧：历史和设置按钮
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                IconButton(onClick = onHistoryClick) {
+                    Icon(
+                        imageVector = Icons.Rounded.History,
+                        contentDescription = "历史",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                IconButton(onClick = onSettingsClick) {
+                    Icon(
+                        imageVector = Icons.Rounded.Settings,
+                        contentDescription = "设置",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
+                }
             }
         }
     }

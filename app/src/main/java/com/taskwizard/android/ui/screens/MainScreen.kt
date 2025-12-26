@@ -19,11 +19,13 @@ import com.taskwizard.android.ui.viewmodel.MainViewModel
  * - 对话框（确认对话框、人工接管对话框）
  *
  * @param onNavigateToSettings 导航到设置页面的回调
+ * @param onNavigateToHistory 导航到历史页面的回调
  * @param viewModel 共享的ViewModel实例
  */
 @Composable
 fun MainScreen(
     onNavigateToSettings: () -> Unit,
+    onNavigateToHistory: () -> Unit,
     viewModel: MainViewModel
 ) {
     // 收集状态
@@ -51,7 +53,8 @@ fun MainScreen(
                 modelName = state.model,
                 hasShizuku = state.hasShizukuPermission,
                 hasADBKeyboard = state.isADBKeyboardInstalled && state.isADBKeyboardEnabled,
-                onSettingsClick = onNavigateToSettings
+                onSettingsClick = onNavigateToSettings,
+                onHistoryClick = onNavigateToHistory
             )
         },
         bottomBar = {
