@@ -61,6 +61,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _settingsState = MutableStateFlow(SettingsState())
     val settingsState: StateFlow<SettingsState> = _settingsState.asStateFlow()
 
+    // ==================== 消息数据库批量写入优化 ====================
+
+    // 性能优化：批量写入数据库，避免频繁的IO操作
+    private val pendingMessagesToSave = mutableListOf<MessageItem>()
+    private val pendingActionsToSave = mutableListOf<Action>()
+    private var isBatching = false
+
     // SharedPreferences用于主题持久化
     private val prefs = application.getSharedPreferences("app_prefs", 0)
 
@@ -512,40 +519,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * 添加AI思考消息
-     * 性能优化：使用 ImmutableList plus 运算符，高效添加元素
+     * 性能优化：立即更新UI，批量写入数据库
      */
     fun addThinkMessage(content: String) {
         val message = MessageItem.ThinkMessage(content = content)
         _state.update {
             it.copy(messages = (it.messages + message).toPersistentList())
         }
-        // 记录到历史
-        recordTaskMessage(message)
+        // 批量写入数据库
+        batchRecordTaskMessage(message)
     }
 
     /**
      * 添加操作消息
-     * 性能优化：使用 ImmutableList plus 运算符，高效添加元素
+     * 性能优化：立即更新UI，批量写入数据库
      */
     fun addActionMessage(action: Action) {
         _state.update {
             it.copy(messages = (it.messages + MessageItem.ActionMessage(action = action)).toPersistentList())
         }
-        // 记录到历史
-        recordTaskAction(action)
+        // 批量写入数据库
+        batchRecordTaskAction(action)
     }
 
     /**
      * 添加系统消息
-     * 性能优化：使用 ImmutableList plus 运算符，高效添加元素
+     * 性能优化：立即更新UI，批量写入数据库
      */
     fun addSystemMessage(content: String, type: SystemMessageType) {
         val message = MessageItem.SystemMessage(content = content, type = type)
         _state.update {
             it.copy(messages = (it.messages + message).toPersistentList())
         }
-        // Save system messages to database for history
-        recordTaskMessage(message)
+        // 系统消息不需要保存到历史记录
+    }
+
+    /**
+     * 批量写入消息到数据库
+     * 性能优化：100ms内的消息会被批量写入，减少IO操作
+     */
+    private fun batchRecordTaskMessage(message: MessageItem) {
+        pendingMessagesToSave.add(message)
+
+        if (!isBatching) {
+            isBatching = true
+            viewModelScope.launch(Dispatchers.IO) {
+                delay(100) // 批量100ms内的消息
+                val messagesToSave = pendingMessagesToSave.toList()
+                pendingMessagesToSave.clear()
+                isBatching = false
+
+                messagesToSave.forEach { recordTaskMessage(it) }
+            }
+        }
+    }
+
+    /**
+     * 批量写入操作到数据库
+     * 性能优化：100ms内的操作会被批量写入，减少IO操作
+     */
+    private fun batchRecordTaskAction(action: Action) {
+        pendingActionsToSave.add(action)
+
+        if (!isBatching) {
+            isBatching = true
+            viewModelScope.launch(Dispatchers.IO) {
+                delay(100) // 批量100ms内的操作
+                val actionsToSave = pendingActionsToSave.toList()
+                pendingActionsToSave.clear()
+                isBatching = false
+
+                actionsToSave.forEach { recordTaskAction(it) }
+            }
+        }
     }
 
     /**

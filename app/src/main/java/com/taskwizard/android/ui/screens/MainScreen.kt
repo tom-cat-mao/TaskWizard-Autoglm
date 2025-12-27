@@ -66,13 +66,14 @@ fun MainScreen(
     val isAnimatingToOverlay by viewModel.isAnimatingToOverlay.collectAsStateWithLifecycle()
 
     // 检测IME（键盘）是否可见
+    // 性能优化：使用 by remember 而不是 .value，避免每次重组创建新的 derivedStateOf
     val density = LocalDensity.current
     val ime = WindowInsets.ime
-    val isImeVisible = remember {
+    val isImeVisible by remember(density) {
         derivedStateOf {
             ime.getBottom(density) > 0
         }
-    }.value
+    }
 
     // 阶段2新增：使用AnimatedMainContent包裹整个界面
     AnimatedMainContent(isAnimating = isAnimatingToOverlay) {

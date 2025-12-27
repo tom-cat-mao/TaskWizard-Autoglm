@@ -56,6 +56,9 @@ fun HistoryScreen(
     // 筛选菜单展开状态
     var filterMenuExpanded by remember { mutableStateOf(false) }
 
+    // 性能优化：删除对话框状态移到屏幕级别
+    var taskToDelete by remember { mutableStateOf<TaskHistoryEntity?>(null) }
+
     // 显示消息
     LaunchedEffect(state.message) {
         state.message?.let {
@@ -201,14 +204,40 @@ fun HistoryScreen(
                                 // Navigate to main screen with history ID to continue conversation
                                 onContinueConversation(task.id)
                             },
-                            onDelete = {
-                                viewModel.deleteTask(task)
+                            onRequestDelete = {
+                                // 性能优化：只设置状态，不立即删除
+                                taskToDelete = task
                             }
                         )
                     }
                 }
             }
         }
+    }
+
+    // 删除确认对话框
+    // 性能优化：单个对话框在屏幕级别管理，而不是每个列表项
+    taskToDelete?.let { task ->
+        AlertDialog(
+            onDismissRequest = { taskToDelete = null },
+            title = { Text("删除任务") },
+            text = { Text("确定要删除此任务记录吗？\n\n${task.taskDescription}") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteTask(task)
+                        taskToDelete = null
+                    }
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { taskToDelete = null }) {
+                    Text("取消")
+                }
+            }
+        )
     }
 }
 
@@ -300,15 +329,14 @@ private fun SearchBar(
 
 /**
  * 任务历史项
+ * 性能优化：移除per-item的dialog状态，改为使用回调
  */
 @Composable
 private fun TaskHistoryItem(
     task: TaskHistoryEntity,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onRequestDelete: () -> Unit  // 改为请求删除的回调，实际删除操作由上层处理
 ) {
-    var showDeleteDialog by remember { mutableStateOf(false) }
-
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -333,7 +361,7 @@ private fun TaskHistoryItem(
                 StatusChip(status = task.getTaskStatus())
 
                 IconButton(
-                    onClick = { showDeleteDialog = true },
+                    onClick = onRequestDelete,
                     modifier = Modifier.size(40.dp)
                 ) {
                     Icon(
@@ -377,30 +405,6 @@ private fun TaskHistoryItem(
                 )
             }
         }
-    }
-
-    // 删除确认对话框
-    if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("删除任务") },
-            text = { Text("确定要删除此任务记录吗？") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onDelete()
-                        showDeleteDialog = false
-                    }
-                ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("取消")
-                }
-            }
-        )
     }
 }
 

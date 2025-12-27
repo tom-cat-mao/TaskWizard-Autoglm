@@ -26,6 +26,8 @@ object NavRoutes {
 /**
  * 应用导航图
  *
+ * 性能优化：动画时长从300ms降低到220ms，提升流畅度
+ *
  * @param navController 导航控制器
  * @param viewModel 共享的ViewModel实例
  * @param modifier 修饰符
@@ -45,29 +47,29 @@ fun AppNavGraph(
             // 从右向左滑入
             slideInHorizontally(
                 initialOffsetX = { fullWidth -> fullWidth },
-                animationSpec = tween(300)
-            ) + fadeIn(animationSpec = tween(300))
+                animationSpec = tween(220)
+            ) + fadeIn(animationSpec = tween(220))
         },
         exitTransition = {
             // 向左滑出并淡出
             slideOutHorizontally(
                 targetOffsetX = { fullWidth -> -fullWidth / 4 },
-                animationSpec = tween(300)
-            ) + fadeOut(animationSpec = tween(300))
+                animationSpec = tween(220)
+            ) + fadeOut(animationSpec = tween(220))
         },
         popEnterTransition = {
             // 从左向右滑入
             slideInHorizontally(
                 initialOffsetX = { fullWidth -> -fullWidth / 4 },
-                animationSpec = tween(300)
-            ) + fadeIn(animationSpec = tween(300))
+                animationSpec = tween(220)
+            ) + fadeIn(animationSpec = tween(220))
         },
         popExitTransition = {
             // 向右滑出
             slideOutHorizontally(
                 targetOffsetX = { fullWidth -> fullWidth },
-                animationSpec = tween(300)
-            ) + fadeOut(animationSpec = tween(300))
+                animationSpec = tween(220)
+            ) + fadeOut(animationSpec = tween(220))
         }
     ) {
         // Main screen with optional history ID parameter
