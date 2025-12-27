@@ -14,8 +14,11 @@ android {
         applicationId = "com.taskwizard.android"
         minSdk = 26 // Android 8.0+
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+
+        // Read version from env var (GitHub Actions), fallback to hardcoded default
+        val versionFromEnv = System.getenv("VERSION_NAME")
+        versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
+        versionName = versionFromEnv ?: "1.0.0"
     }
 
     // ==================== 签名配置 ====================
