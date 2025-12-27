@@ -10,7 +10,7 @@
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.0-blue)](https://kotlinlang.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-[English Documentation](README_EN.md) | 中文文档
+[English Documentation](README_en.md) | 中文文档
 
 ## 项目简介
 
