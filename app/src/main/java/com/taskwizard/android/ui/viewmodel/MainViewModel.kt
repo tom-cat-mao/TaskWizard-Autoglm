@@ -19,6 +19,7 @@ import com.taskwizard.android.manager.OverlayPermissionManager
 import com.taskwizard.android.manager.ShizukuManager
 import com.taskwizard.android.service.OverlayService
 import com.taskwizard.android.ui.theme.ThemeMode
+import com.taskwizard.android.utils.SecureSettingsManager
 import com.taskwizard.android.utils.SettingsManager
 import android.content.Intent
 import android.os.Build
@@ -121,6 +122,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // 初始化SettingsManager
         SettingsManager.init(application)
 
+        // 初始化SecureSettingsManager (用于加密存储API Key)
+        try {
+            SecureSettingsManager.init(application)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize SecureSettingsManager", e)
+        }
+
+        // 迁移现有的API Key到加密存储（一次性迁移）
+        migrateApiKeyToSecureStorage()
+
         // 加载配置
         loadSettings()
 
@@ -141,14 +152,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * 迁移现有的API Key从普通SharedPreferences到加密存储
+     * 这是一次性操作，迁移后会清除普通SharedPreferences中的API Key
+     */
+    private fun migrateApiKeyToSecureStorage() {
+        try {
+            // 从普通存储读取API Key
+            val plainApiKey = SettingsManager.apiKey
+
+            // 如果普通存储中有API Key
+            if (plainApiKey.isNotEmpty()) {
+                // 检查加密存储中是否已有API Key
+                if (!SecureSettingsManager.hasApiKey()) {
+                    // 迁移到加密存储
+                    SecureSettingsManager.apiKey = plainApiKey
+                    Log.d(TAG, "API Key migrated to encrypted storage")
+
+                    // 清除普通存储中的API Key
+                    SettingsManager.apiKey = ""
+                    Log.d(TAG, "API Key cleared from plaintext storage")
+                } else {
+                    // 加密存储中已有API Key，保留加密存储的版本
+                    // 清除普通存储中的版本（如果存在）
+                    SettingsManager.apiKey = ""
+                    Log.d(TAG, "API Key already in encrypted storage, cleared plaintext")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to migrate API Key to secure storage", e)
+        }
+    }
+
     // ==================== 配置管理 ====================
 
     /**
      * 从SettingsManager加载配置
      * 性能优化：同时加载到 AppState 和 SettingsState
+     * 安全改进：API Key从加密存储读取
      */
     private fun loadSettings() {
-        val apiKey = SettingsManager.apiKey
+        // 从加密存储读取API Key
+        val apiKey = try {
+            SecureSettingsManager.apiKey
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read API key from secure storage", e)
+            // Fallback to regular storage if secure storage fails
+            SettingsManager.apiKey
+        }
         val baseUrl = SettingsManager.baseUrl
         val model = SettingsManager.model
         val themeMode = loadThemeMode()
@@ -261,10 +312,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * 保存配置到SettingsManager
+     * 安全改进：API Key保存到加密存储
      */
     fun saveSettings() {
         val current = _state.value
-        SettingsManager.apiKey = current.apiKey
+
+        // 保存API Key到加密存储
+        try {
+            SecureSettingsManager.apiKey = current.apiKey
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save API key to secure storage", e)
+            // Fallback to regular storage if secure storage fails
+            SettingsManager.apiKey = current.apiKey
+        }
+
+        // 其他配置保存到普通存储
         SettingsManager.baseUrl = current.baseUrl
         SettingsManager.model = current.model
 
@@ -698,7 +760,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // 4. 使用 TaskScope.launchTask 启动任务
-        taskJob = TaskScope.launchTask(agentCore!!) {
+        val core = agentCore ?: run {
+            Log.e(TAG, "AgentCore not initialized")
+            return
+        }
+        taskJob = TaskScope.launchTask(core) {
             try {
                 executeTask(task)
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -743,7 +809,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             agentCore?.startSession(task)
 
             // 4. 绑定Shizuku服务
-            service = try {
+            val shizukuService = try {
                 ShizukuManager.bindService(getApplication())
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to bind Shizuku service", e)
@@ -752,12 +818,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 return
             }
+            service = shizukuService
 
             // 5. 初始化ActionExecutor
             val screenSize = getScreenSize()
             actionExecutor = ActionExecutor(
                 context = getApplication(),
-                service = service!!,
+                service = shizukuService,
                 screenWidth = screenSize.first,
                 screenHeight = screenSize.second,
                 onTakeOver = { message ->

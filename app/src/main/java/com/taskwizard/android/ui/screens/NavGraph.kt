@@ -77,7 +77,6 @@ fun AppNavGraph(
                 navArgument("historyId") {
                     type = NavType.LongType
                     defaultValue = -1L
-                    nullable = false
                 }
             )
         ) { backStackEntry ->

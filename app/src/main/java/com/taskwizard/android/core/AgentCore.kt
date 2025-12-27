@@ -193,7 +193,8 @@ class AgentCore(
             )
             
             if (response.isSuccessful && response.body() != null) {
-                val summary = response.body()!!.choices.first().message.content
+                val body = response.body() ?: return null
+                val summary = body.choices.first().message.content
                 Log.d("AgentCore", "API summary: $summary")
                 return summary
             } else {
@@ -290,7 +291,8 @@ class AgentCore(
             }
 
             if (response.isSuccessful && response.body() != null) {
-                val responseMsg = response.body()!!.choices.first().message
+                val body = response.body() ?: return null
+                val responseMsg = body.choices.first().message
                 val content = responseMsg.content
 
                 Log.d("AgentCore", "AI Response received, length=${content.length}")

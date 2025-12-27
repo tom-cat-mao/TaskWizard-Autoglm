@@ -3,6 +3,7 @@ package com.taskwizard.android.core
 import android.content.Context
 import android.util.Log
 import com.taskwizard.android.IAutoGLMService
+import com.taskwizard.android.security.ShellCommandBuilder
 import com.taskwizard.android.data.Action
 import com.taskwizard.android.config.AppMap
 import com.taskwizard.android.config.TimingConfig
@@ -76,7 +77,9 @@ class ActionExecutor(
 
                 if (packageName != null) {
                     Log.d(TAG, "Resolved app '$appName' to package '$packageName'")
-                    runShell("monkey -p $packageName -c android.intent.category.LAUNCHER 1")
+                    // Use ShellCommandBuilder for safe command construction
+                    val cmd = ShellCommandBuilder.buildMonkeyCommand(packageName)
+                    runShell(cmd)
 
                     // Phase 4: 添加延迟（对齐原版 timing.py）
                     delay(TimingConfig.device.defaultLaunchDelay)
@@ -115,7 +118,9 @@ class ActionExecutor(
                         Log.i(TAG, "User confirmed sensitive operation")
                     }
 
-                    runShell("input tap $x $y")
+                    // Use ShellCommandBuilder for safe command construction
+                    val cmd = ShellCommandBuilder.buildTapCommand(x, y)
+                    runShell(cmd)
 
                     // Phase 4: 添加延迟（对齐原版 timing.py）
                     delay(TimingConfig.device.defaultTapDelay)
@@ -128,17 +133,18 @@ class ActionExecutor(
                 if (coords.size >= 2) {
                     val x = (coords[0] / 1000.0 * screenWidth).toInt()
                     val y = (coords[1] / 1000.0 * screenHeight).toInt()
-                    
+
                     Log.d(TAG, "Double Tap: model coords=[${coords[0]}, ${coords[1]}] -> screen coords=($x, $y)")
-                    
+
                     // 第一次点击
-                    runShell("input tap $x $y")
-                    
+                    val cmd = ShellCommandBuilder.buildTapCommand(x, y)
+                    runShell(cmd)
+
                     // Phase 4: 使用 TimingConfig 的 doubleTapInterval（对齐原版）
                     delay(TimingConfig.device.doubleTapInterval)
-                    
+
                     // 第二次点击
-                    runShell("input tap $x $y")
+                    runShell(cmd)
                     
                     // Phase 4: 添加延迟
                     delay(TimingConfig.device.defaultDoubleTapDelay)
@@ -153,13 +159,15 @@ class ActionExecutor(
                 if (coords.size >= 2) {
                     val x = (coords[0] / 1000.0 * screenWidth).toInt()
                     val y = (coords[1] / 1000.0 * screenHeight).toInt()
-                    
+
                     Log.d(TAG, "Long Press: model coords=[${coords[0]}, ${coords[1]}] -> screen coords=($x, $y)")
-                    
+
                     // 使用 action.duration 或默认 1000ms
                     val duration = action.duration ?: 1000
-                    
-                    runShell("input swipe $x $y $x $y $duration")
+
+                    // Use ShellCommandBuilder for safe command construction
+                    val cmd = ShellCommandBuilder.buildSwipeCommand(x, y, x, y, duration)
+                    runShell(cmd)
                     
                     // Phase 4: 添加延迟
                     delay(TimingConfig.device.defaultLongPressDelay)
@@ -219,11 +227,13 @@ class ActionExecutor(
                      val y1 = (coords[1] / 1000.0 * screenHeight).toInt()
                      val x2 = (coords[2] / 1000.0 * screenWidth).toInt()
                      val y2 = (coords[3] / 1000.0 * screenHeight).toInt()
-                     
+
                      Log.d(TAG, "Swipe: model coords=[${coords[0]}, ${coords[1]}] -> [${coords[2]}, ${coords[3]}]")
                      Log.d(TAG, "Swipe: screen coords=($x1, $y1) -> ($x2, $y2)")
-                     
-                     runShell("input swipe $x1 $y1 $x2 $y2 300")
+
+                     // Use ShellCommandBuilder for safe command construction
+                     val cmd = ShellCommandBuilder.buildSwipeCommand(x1, y1, x2, y2, 300)
+                     runShell(cmd)
                      
                      // Phase 4: 添加延迟
                      delay(TimingConfig.device.defaultSwipeDelay)
@@ -231,19 +241,25 @@ class ActionExecutor(
             }
             
             "home" -> {
-                runShell("input keyevent KEYCODE_HOME")
+                // Use ShellCommandBuilder for safe command construction
+                val cmd = ShellCommandBuilder.buildKeyEventCommand("KEYCODE_HOME")
+                runShell(cmd)
                 // Phase 4: 添加延迟
                 delay(TimingConfig.device.defaultHomeDelay)
             }
-            
+
             "back" -> {
-                runShell("input keyevent KEYCODE_BACK")
+                // Use ShellCommandBuilder for safe command construction
+                val cmd = ShellCommandBuilder.buildKeyEventCommand("KEYCODE_BACK")
+                runShell(cmd)
                 // Phase 4: 添加延迟
                 delay(TimingConfig.device.defaultBackDelay)
             }
-            
+
             "enter" -> {
-                runShell("input keyevent KEYCODE_ENTER")
+                // Use ShellCommandBuilder for safe command construction
+                val cmd = ShellCommandBuilder.buildKeyEventCommand("KEYCODE_ENTER")
+                runShell(cmd)
             }
             
             // Phase 2: Take_over 实现（suspend 调用，会等待用户操作完成）
@@ -305,12 +321,28 @@ class ActionExecutor(
         return null
     }
 
+    /**
+     * Execute shell command with security validation
+     *
+     * Security: Validates command against whitelist before execution
+     * @throws SecurityException if command is not allowed
+     */
     private fun runShell(cmd: String) {
         try {
+            // Validate command against whitelist
+            if (!ShellCommandBuilder.isCommandAllowed(cmd)) {
+                val commandName = cmd.split(" ").firstOrNull() ?: "unknown"
+                Log.e(TAG, "Command not allowed: $commandName")
+                throw SecurityException("Command not allowed: $commandName")
+            }
+
             Log.d(TAG, "Running: $cmd")
             service.executeShellCommand(cmd)
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Security exception: ${e.message}", e)
+            throw e // Re-throw security exceptions
         } catch (e: Exception) {
-            Log.e(TAG, "Shell failed", e)
+            Log.e(TAG, "Shell execution failed", e)
         }
     }
     
@@ -325,10 +357,12 @@ class ActionExecutor(
             Log.d(TAG, "No need to restore IME (not switched or no original IME)")
             return
         }
-        
+
         try {
-            Log.i(TAG, "Restoring IME to: $originalIME")
-            val success = service.setIME(originalIME!!)
+            // Safe to use !! here as we checked for null above
+            val imeToRestore = originalIME ?: return
+            Log.i(TAG, "Restoring IME to: $imeToRestore")
+            val success = service.setIME(imeToRestore)
             
             if (success) {
                 Log.i(TAG, "Successfully restored IME")
