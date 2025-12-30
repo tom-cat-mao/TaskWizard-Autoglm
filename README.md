@@ -128,7 +128,7 @@ TaskWizard 内置了输入法功能，无需额外安装，应用会自动引导
 | 设置项 | 说明 | 范围/选项 |
 |--------|------|----------|
 | **API Key** | 您的模型 API 密钥 | `sk-xxxxx` |
-| **Base URL** | 模型 API 地址 | 任何有效 URL |
+| **Base URL** | OpenAI 兼容 API 均可 | 推荐智谱 https://open.bigmodel.cn/api/paas/v4 |
 | **Model Name** | 使用的模型 | `autoglm-phone`, `autoglm-phone-9b` 等 |
 | **Timeout** | API 请求超时 | 10-120 秒（默认：30秒） |
 | **Retry Count** | 失败重试次数 | 0-10 次（默认：3次） |
@@ -206,35 +206,15 @@ TaskWizard 实现了多层安全措施：
 
 ## 模型选项
 
-### 选项 1：智谱 BigModel（推荐）
+本应用支持 OpenAI 兼容 API，推荐使用智谱 BigModel 的 `autoglm-phone` 模型。更多模型选项请查看 [Open-AutoGLM](https://github.com/zai-org/Open-AutoGLM)。
+
+### 智谱 BigModel（推荐）
 
 ```kotlin
 Base URL: https://open.bigmodel.cn/api/paas/v4
 Model: autoglm-phone
 API Key: 从 https://open.bigmodel.cn/ 获取
 ```
-
-### 选项 2：ModelScope（魔搭社区）
-
-```kotlin
-Base URL: https://api-inference.modelscope.cn/v1
-Model: ZhipuAI/AutoGLM-Phone-9B
-API Key: 从 https://modelscope.cn/ 获取
-```
-
-### 选项 3：自托管模型
-
-使用 vLLM 或 SGLang 部署自己的模型：
-
-```bash
-# vLLM 示例
-vllm serve zai-org/AutoGLM-Phone-9B \
-  --max-model-len 8192 \
-  --limit-mm-per-prompt '{"image": 10}' \
-  --guided-decoding-backend lm-format-enforcer
-```
-
-然后将 Base URL 设置为 `http://your-server-ip:8000/v1`。
 
 ## 支持的应用
 
@@ -359,19 +339,6 @@ TaskWizard/
 ./gradlew lint
 ```
 
-### 代码签名
-
-Release 构建使用环境变量进行签名配置（GitHub Actions）。
-本地开发构建使用 debug 签名。
-
-**环境变量：**
-- `KEYSTORE_FILE` - 密钥库文件路径
-- `KEYSTORE_PASSWORD` - 密钥库密码
-- `KEY_ALIAS` - 密钥别名
-- `KEY_PASSWORD` - 密钥密码
-
-如果未设置这些变量，本地构建会自动回退到 debug 签名。
-
 ### 性能测试
 
 项目包含完整的性能测试套件：
@@ -476,6 +443,4 @@ Release 构建使用环境变量进行签名配置（GitHub Actions）。
 - [Shizuku 文档](https://shizuku.rikka.app/)
 - [问题反馈](https://github.com/tom-cat-mao/TaskWizard-Autoglm/issues)
 
----
 
-用 ❤️ 制作，by TaskWizard 团队

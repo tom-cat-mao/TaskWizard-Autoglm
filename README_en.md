@@ -128,7 +128,7 @@ Open TaskWizard and navigate to Settings:
 | Setting | Description | Range/Options |
 |---------|-------------|---------------|
 | **API Key** | Your model API key | `sk-xxxxx` |
-| **Base URL** | Model API endpoint | Any valid URL |
+| **Base URL** | OpenAI-compatible APIs | Recommended: Zhipu https://open.bigmodel.cn/api/paas/v4 |
 | **Model Name** | Model to use | `autoglm-phone`, `autoglm-phone-9b`, etc. |
 | **Timeout** | API request timeout | 10-120 seconds (default: 30s) |
 | **Retry Count** | Number of retries on failure | 0-10 times (default: 3) |
@@ -206,35 +206,15 @@ TaskWizard implements multiple security measures:
 
 ## Model Options
 
-### Option 1: Zhipu BigModel (Recommended)
+This app supports OpenAI-compatible APIs. We recommend using the `autoglm-phone` model from Zhipu BigModel. For more model options, see [Open-AutoGLM](https://github.com/zai-org/Open-AutoGLM).
+
+### Zhipu BigModel (Recommended)
 
 ```kotlin
 Base URL: https://open.bigmodel.cn/api/paas/v4
 Model: autoglm-phone
 API Key: Get from https://open.bigmodel.cn/
 ```
-
-### Option 2: ModelScope (魔搭社区)
-
-```kotlin
-Base URL: https://api-inference.modelscope.cn/v1
-Model: ZhipuAI/AutoGLM-Phone-9B
-API Key: Get from https://modelscope.cn/
-```
-
-### Option 3: Self-Hosted Model
-
-Deploy your own model using vLLM or SGLang:
-
-```bash
-# vLLM example
-vllm serve zai-org/AutoGLM-Phone-9B \
-  --max-model-len 8192 \
-  --limit-mm-per-prompt '{"image": 10}' \
-  --guided-decoding-backend lm-format-enforcer
-```
-
-Then set your Base URL to `http://your-server-ip:8000/v1`.
 
 ## Supported Apps
 
@@ -359,19 +339,6 @@ TaskWizard/
 ./gradlew lint
 ```
 
-### Code Signing
-
-Release builds use environment variables for signing configuration (GitHub Actions).
-Local development builds use debug signing.
-
-**Environment Variables:**
-- `KEYSTORE_FILE` - Path to keystore file
-- `KEYSTORE_PASSWORD` - Keystore password
-- `KEY_ALIAS` - Key alias
-- `KEY_PASSWORD` - Key password
-
-Local builds automatically fall back to debug signing if these variables are not set.
-
 ### Performance Testing
 
 The project includes a comprehensive performance test suite:
@@ -476,6 +443,5 @@ This project is for research and learning purposes only. Please comply with all 
 - [Shizuku Documentation](https://shizuku.rikka.app/)
 - [Issue Tracker](https://github.com/tom-cat-mao/TaskWizard-Autoglm/issues)
 
----
 
-Made with ❤️ by the TaskWizard team
+
