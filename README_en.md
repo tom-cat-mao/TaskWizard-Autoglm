@@ -30,6 +30,9 @@
 ### Latest Features ✨
 
 - ✅ **Manual Takeover**: AI can request manual intervention when needed, overlay shows countdown, tap to continue when done
+  - Configurable: 60-600 seconds timeout (adjustable)
+  - User actions: Single tap to continue, long press to cancel
+  - Complete workflow and configuration options
 - ✅ **Built-in Input Method**: Integrated TaskWizard keyboard, no need to install ADB Keyboard separately
 - ✅ **Complete History Display**: View all message types (think, action, system messages) when clicking history records
 - ✅ **New Conversation Button**: Quick-start a new conversation with one tap
@@ -79,7 +82,7 @@ Loop Until Task Complete
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/Open-AutoGLM.git
+git clone https://github.com/tom-cat-mao/TaskWizard-Autoglm.git
 cd Open-AutoGLM
 
 # Build debug APK
@@ -91,7 +94,7 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 ### Method 2: Download Release APK
 
-Download the latest APK from the [Releases](https://github.com/yourusername/Open-AutoGLM/releases) page.
+Download the latest APK from the [Releases](https://github.com/tom-cat-mao/TaskWizard-Autoglm/releases) page.
 
 ## Setup Guide
 
@@ -122,11 +125,16 @@ If you prefer to use the external ADB Keyboard:
 
 Open TaskWizard and navigate to Settings:
 
-| Setting | Description | Example |
-|---------|-------------|---------|
+| Setting | Description | Range/Options |
+|---------|-------------|---------------|
 | **API Key** | Your model API key | `sk-xxxxx` |
-| **Base URL** | Model API endpoint | `https://open.bigmodel.cn/api/paas/v4` |
-| **Model Name** | Model to use | `autoglm-phone` or `autoglm-phone-9b` |
+| **Base URL** | Model API endpoint | Any valid URL |
+| **Model Name** | Model to use | `autoglm-phone`, `autoglm-phone-9b`, etc. |
+| **Timeout** | API request timeout | 10-120 seconds (default: 30s) |
+| **Retry Count** | Number of retries on failure | 0-10 times (default: 3) |
+| **Takeover Timeout** | Manual intervention timeout | 60-600 seconds (default: 180s) |
+| **Debug Mode** | Enable debug logging | On/Off |
+| **Theme** | App theme | Light, Dark, Pure Black |
 
 ### 4. Grant Permissions
 
@@ -147,6 +155,31 @@ The app status bar shows your current keyboard status:
 - Not enabled: Shows "键盘未启用" (red)
 
 Tap the keyboard status icon in the status bar to view setup options and switching guides.
+
+## Theme System
+
+TaskWizard supports three theme modes:
+
+- **Light Mode**: Standard light theme
+- **Dark Mode**: Dark theme following Material 3 guidelines
+- **Pure Black**: Pure black background for OLED screens (battery saving)
+
+Theme preference is automatically saved and restored across app launches.
+
+## Security Architecture
+
+TaskWizard implements multiple security measures:
+
+- **Shell Command Validation**: `ShellCommandBuilder.kt` validates all shell commands against a whitelist
+  - Only allows: `input`, `screencap`, `am`, `dumpsys`, `settings`, `ime`
+  - Prevents command injection attacks
+
+- **Encrypted Storage**: `SecureSettingsManager.kt` uses AndroidX Security Crypto
+  - API keys stored in encrypted SharedPreferences
+  - Master key backed by hardware-backed Keystore when available
+
+- **AIDL Interface**: Defined IPC contract for Shizuku service
+  - Type-safe communication between app and privileged service
 
 ## Feature Usage
 
@@ -261,34 +294,51 @@ TaskWizard/
 │   ├── screens/           # Main, Settings, History screens
 │   ├── components/        # Reusable UI components
 │   ├── overlay/           # Floating overlay UI
-│   └── viewmodel/         # State management
+│   ├── utils/             # UI utilities (AppLauncher, etc.)
+│   ├── viewmodel/         # State management
+│   └── theme/             # Material 3 theming
 ├── core/                   # Core automation logic
 │   ├── AgentCore.kt       # AI agent orchestration
 │   ├── ActionExecutor.kt  # Shizuku action execution
 │   └── ResponseParser.kt  # Model response parsing
 ├── api/                    # Network layer
-│   └── AutoGLMService.kt  # Retrofit API client
+│   ├── LLMService.kt      # Retrofit API client (OpenAI compatible)
+│   └── ApiClient.kt       # HTTP client configuration
 ├── manager/                # System integration
-│   └── ShizukuManager.kt  # Shizuku connection & IPC
+│   ├── ShizukuManager.kt  # Shizuku connection & IPC
+│   └── OverlayPermissionManager.kt
+├── service/                # Android services
+│   ├── OverlayService.kt  # Foreground overlay service
+│   └── AutoGLMUserService.kt  # Shizuku privileged service
+├── ime/                    # Built-in input method
+│   └── TaskWizardIME.kt   # InputMethodService for text input
 ├── data/                   # Data layer
-│   ├── history/           # History database
-│   └── AppState.kt        # Application state management
+│   ├── history/           # History database (Room)
+│   ├── AppState.kt        # Application state
+│   ├── SettingsState.kt   # Settings state
+│   ├── OverlayState.kt    # Overlay state
+│   ├── MessageItem.kt     # Chat message model
+│   └── Action.kt          # Action model
 ├── config/                 # Configuration
-│   ├── AppMap.kt          # App package mappings
+│   ├── AppMap.kt          # App package mappings (200+ apps)
 │   ├── SystemPrompt.kt    # AI system prompt
 │   └── TimingConfig.kt    # Timing constants
-├── service/                # Android services
-│   └── OverlayService.kt  # Foreground overlay service
-└── utils/                  # Utilities
-    ├── SettingsManager.kt  # Persistence
-    └── TaskScope.kt       # Coroutine scope
+├── security/               # Security
+│   └── ShellCommandBuilder.kt  # Shell command validation
+├── utils/                  # Utilities
+│   ├── SettingsManager.kt  # SharedPreferences wrapper
+│   ├── SecureSettingsManager.kt  # Encrypted storage
+│   ├── PerformanceMonitor.kt  # Performance tools
+│   └── Logger.kt          # Logging utility
+└── TaskScope.kt            # Application-level coroutine scope
 ```
 
 ## Development
 
 ### Build Requirements
 
-- JDK 17 or higher (Kotlin 2.0.0 requires JDK 17+)
+- JDK 17 or higher (for Kotlin 2.0.0 compilation)
+- Note: Compiled bytecode targets Java 11
 - Android SDK 34
 - Kotlin 2.0.0
 - Gradle 8.0+
@@ -311,7 +361,16 @@ TaskWizard/
 
 ### Code Signing
 
-Release builds require keystore configuration. See [RELEASE_SETUP.md](RELEASE_SETUP.md) for details.
+Release builds use environment variables for signing configuration (GitHub Actions).
+Local development builds use debug signing.
+
+**Environment Variables:**
+- `KEYSTORE_FILE` - Path to keystore file
+- `KEYSTORE_PASSWORD` - Keystore password
+- `KEY_ALIAS` - Key alias
+- `KEY_PASSWORD` - Key password
+
+Local builds automatically fall back to debug signing if these variables are not set.
 
 ### Performance Testing
 
@@ -323,6 +382,22 @@ The project includes a comprehensive performance test suite:
 
 # Run UI performance benchmark tests
 ./gradlew connectedAndroidTest
+```
+
+### Performance Monitoring
+
+The app includes built-in performance monitoring tools (debug builds only):
+
+- **RecompositionCounter**: Tracks component recomposition counts
+- **StateChangeLogger**: Monitors state changes
+- **RenderTimeTracker**: Measures component rendering time
+- **FrameRateMonitor**: Detects dropped frames and calculates FPS
+
+To analyze performance:
+```bash
+# Build generates metrics in app/build/compose-metrics/
+# and app/build/compose-reports/
+./gradlew assembleDebug
 ```
 
 ## Troubleshooting
@@ -399,7 +474,7 @@ This project is for research and learning purposes only. Please comply with all 
 
 - [Original Open-AutoGLM](https://github.com/zai-org/Open-AutoGLM)
 - [Shizuku Documentation](https://shizuku.rikka.app/)
-- [Issue Tracker](https://github.com/yourusername/Open-AutoGLM/issues)
+- [Issue Tracker](https://github.com/tom-cat-mao/TaskWizard-Autoglm/issues)
 
 ---
 

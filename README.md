@@ -30,6 +30,9 @@
 ### 最新功能 ✨
 
 - ✅ **人工接管**：AI 可在需要时请求人工介入，悬浮窗显示倒计时，完成后点击继续
+  - 配置：60-600 秒超时（可调整）
+  - 用户操作：单击继续，长按取消
+  - 完整的工作流程和配置选项
 - ✅ **内置输入法**：内置 TaskWizard 键盘，无需额外安装 ADB Keyboard
 - ✅ **历史记录完整显示**：点击历史记录可查看所有消息（思考、操作、系统消息）
 - ✅ **新建对话按钮**：快速开始新对话，无需手动清空
@@ -79,7 +82,7 @@ Shizuku 执行（系统级操作）
 
 ```bash
 # 克隆仓库
-git clone https://github.com/yourusername/Open-AutoGLM.git
+git clone https://github.com/tom-cat-mao/TaskWizard-Autoglm.git
 cd Open-AutoGLM
 
 # 构建 Debug APK
@@ -91,7 +94,7 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 ### 方法二：下载发布版 APK
 
-从 [发布页面](https://github.com/yourusername/Open-AutoGLM/releases) 下载最新的 APK 文件。
+从 [发布页面](https://github.com/tom-cat-mao/TaskWizard-Autoglm/releases) 下载最新的 APK 文件。
 
 ## 设置指南
 
@@ -122,11 +125,16 @@ TaskWizard 内置了输入法功能，无需额外安装，应用会自动引导
 
 打开 TaskWizard 并进入设置页面：
 
-| 设置项 | 说明 | 示例 |
-|--------|------|------|
+| 设置项 | 说明 | 范围/选项 |
+|--------|------|----------|
 | **API Key** | 您的模型 API 密钥 | `sk-xxxxx` |
-| **Base URL** | 模型 API 地址 | `https://open.bigmodel.cn/api/paas/v4` |
-| **Model Name** | 使用的模型名称 | `autoglm-phone` 或 `autoglm-phone-9b` |
+| **Base URL** | 模型 API 地址 | 任何有效 URL |
+| **Model Name** | 使用的模型 | `autoglm-phone`, `autoglm-phone-9b` 等 |
+| **Timeout** | API 请求超时 | 10-120 秒（默认：30秒） |
+| **Retry Count** | 失败重试次数 | 0-10 次（默认：3次） |
+| **Takeover Timeout** | 人工接管超时 | 60-600 秒（默认：180秒） |
+| **Debug Mode** | 启用调试日志 | 开/关 |
+| **Theme** | 应用主题 | 浅色、深色、纯黑 |
 
 ### 4. 授予权限
 
@@ -147,6 +155,31 @@ TaskWizard 支持两种输入法，并会在需要时自动切换到兼容的输
 - 未启用：显示"键盘未启用"（红色）
 
 点击状态栏键盘图标可以查看设置选项和切换引导。
+
+## 主题系统
+
+TaskWizard 支持三种主题模式：
+
+- **浅色模式**：标准浅色主题
+- **深色模式**：遵循 Material 3 规范的深色主题
+- **纯黑模式**：OLED 屏幕纯黑背景（省电）
+
+主题偏好会自动保存并在应用启动时恢复。
+
+## 安全架构
+
+TaskWizard 实现了多层安全措施：
+
+- **Shell 命令验证**：`ShellCommandBuilder.kt` 对所有 shell 命令进行白名单验证
+  - 仅允许：`input`、`screencap`、`am`、`dumpsys`、`settings`、`ime`
+  - 防止命令注入攻击
+
+- **加密存储**：`SecureSettingsManager.kt` 使用 AndroidX Security Crypto
+  - API 密钥存储在加密的 SharedPreferences 中
+  - 主密钥由硬件支持的 Keystore 保护（如果可用）
+
+- **AIDL 接口**：为 Shizuku 服务定义的 IPC 契约
+  - 应用与特权服务之间的类型安全通信
 
 ## 功能使用
 
@@ -261,34 +294,51 @@ TaskWizard/
 │   ├── screens/           # 主界面、设置界面、历史界面
 │   ├── components/        # 可复用 UI 组件
 │   ├── overlay/           # 悬浮窗 UI
-│   └── viewmodel/         # 状态管理
+│   ├── utils/             # UI 工具类（AppLauncher 等）
+│   ├── viewmodel/         # 状态管理
+│   └── theme/             # Material 3 主题
 ├── core/                   # 核心自动化逻辑
 │   ├── AgentCore.kt       # AI 智能体编排
 │   ├── ActionExecutor.kt  # Shizuku 操作执行
 │   └── ResponseParser.kt  # 模型响应解析
 ├── api/                    # 网络层
-│   └── AutoGLMService.kt  # Retrofit API 客户端
+│   ├── LLMService.kt      # Retrofit API 客户端（OpenAI 兼容）
+│   └── ApiClient.kt       # HTTP 客户端配置
 ├── manager/                # 系统集成
-│   └── ShizukuManager.kt  # Shizuku 连接与 IPC
+│   ├── ShizukuManager.kt  # Shizuku 连接与 IPC
+│   └── OverlayPermissionManager.kt
+├── service/                # Android 服务
+│   ├── OverlayService.kt  # 前台悬浮窗服务
+│   └── AutoGLMUserService.kt  # Shizuku 特权服务
+├── ime/                    # 内置输入法
+│   └── TaskWizardIME.kt   # InputMethodService 文本输入
 ├── data/                   # 数据层
-│   ├── history/           # 历史记录数据库
-│   └── AppState.kt        # 应用状态管理
+│   ├── history/           # 历史记录数据库（Room）
+│   ├── AppState.kt        # 应用状态
+│   ├── SettingsState.kt   # 设置状态
+│   ├── OverlayState.kt    # 悬浮窗状态
+│   ├── MessageItem.kt     # 聊天消息模型
+│   └── Action.kt          # 操作模型
 ├── config/                 # 配置
-│   ├── AppMap.kt          # 应用包名映射
+│   ├── AppMap.kt          # 应用包名映射（200+ 应用）
 │   ├── SystemPrompt.kt    # AI 系统提示词
 │   └── TimingConfig.kt    # 时间常量配置
-├── service/                # Android 服务
-│   └── OverlayService.kt  # 前台悬浮窗服务
-└── utils/                  # 工具类
-    ├── SettingsManager.kt  # 持久化
-    └── TaskScope.kt       # 协程作用域
+├── security/               # 安全
+│   └── ShellCommandBuilder.kt  # Shell 命令验证
+├── utils/                  # 工具类
+│   ├── SettingsManager.kt  # SharedPreferences 封装
+│   ├── SecureSettingsManager.kt  # 加密存储
+│   ├── PerformanceMonitor.kt  # 性能工具
+│   └── Logger.kt          # 日志工具
+└── TaskScope.kt            # 应用级协程作用域
 ```
 
 ## 开发
 
 ### 构建要求
 
-- JDK 17 或更高版本
+- JDK 17 或更高版本（用于 Kotlin 2.0.0 编译）
+- 注：编译的字节码目标是 Java 11
 - Android SDK 34
 - Kotlin 2.0.0
 - Gradle 8.0+
@@ -311,7 +361,16 @@ TaskWizard/
 
 ### 代码签名
 
-Release 构建需要配置密钥库。详细说明请查看 [RELEASE_SETUP.md](RELEASE_SETUP.md)。
+Release 构建使用环境变量进行签名配置（GitHub Actions）。
+本地开发构建使用 debug 签名。
+
+**环境变量：**
+- `KEYSTORE_FILE` - 密钥库文件路径
+- `KEYSTORE_PASSWORD` - 密钥库密码
+- `KEY_ALIAS` - 密钥别名
+- `KEY_PASSWORD` - 密钥密码
+
+如果未设置这些变量，本地构建会自动回退到 debug 签名。
 
 ### 性能测试
 
@@ -323,6 +382,22 @@ Release 构建需要配置密钥库。详细说明请查看 [RELEASE_SETUP.md](R
 
 # 运行 UI 性能基准测试
 ./gradlew connectedAndroidTest
+```
+
+### 性能监控
+
+应用包含内置性能监控工具（仅 debug 构建）：
+
+- **RecompositionCounter**：跟踪组件重组次数
+- **StateChangeLogger**：监控状态变化
+- **RenderTimeTracker**：测量组件渲染时间
+- **FrameRateMonitor**：检测掉帧并计算 FPS
+
+分析性能方法：
+```bash
+# 构建生成 app/build/compose-metrics/
+# 和 app/build/compose-reports/ 中的指标
+./gradlew assembleDebug
 ```
 
 ## 常见问题
@@ -399,7 +474,7 @@ Release 构建需要配置密钥库。详细说明请查看 [RELEASE_SETUP.md](R
 
 - [原版 Open-AutoGLM](https://github.com/zai-org/Open-AutoGLM)
 - [Shizuku 文档](https://shizuku.rikka.app/)
-- [问题反馈](https://github.com/yourusername/Open-AutoGLM/issues)
+- [问题反馈](https://github.com/tom-cat-mao/TaskWizard-Autoglm/issues)
 
 ---
 
